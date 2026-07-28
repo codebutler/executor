@@ -4,8 +4,19 @@
 #include "keycode_map.h"
 #include <wind/pcbridge.h>
 #include <algorithm>
+#include <string>
+#include <cstdint>
+#include <cstdlib>
 
 #include <SDL.h>
+
+/* pc clipboard bridge (issue #659): SetHandleSize/Handle/Ptr, LM(MemErr),
+ * the "TEXT"_4 OSType literal. */
+#include <base/common.h>
+#include <MemoryMgr.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 using namespace Executor;
 
@@ -321,4 +332,95 @@ bool SDL2VideoDriver::updateMode()
         dirtyRects_.add(0, 0, h, w);
     });
     return true;
+}
+
+/* ---- pc clipboard bridge (issue #659) ---------------------------------
+ *
+ * Per-instance Executor runs one engine per Mac app, so each app has its
+ * OWN in-memory Mac Scrap; a copy in one app doesn't reach another, nor the
+ * rest of pc. Bridge the TEXT flavor to pc's central clipboard
+ * (js/clipboard.ts) through two hooks the embedding page installs on the
+ * Module (pcPutScrap / pcGetScrapText — see
+ * js/apps/executor/executor-window.ts). SDL2's emscripten port does NOT
+ * implement SDL_SetClipboardText/SDL_GetClipboardText against the browser
+ * (they'd just hit a per-module in-memory buffer), so we go straight to
+ * pc's clipboard instead of through SDL.
+ *
+ * The hooks run on the page's MAIN thread — where pc's modules live — via
+ * MAIN_THREAD_EM_ASM. main() here is a pthread (PROXY_TO_PTHREAD), and its
+ * JS worker scope can't see pc's modules; MAIN_THREAD_EM_ASM blocks this
+ * thread until the main-thread code returns, and pc's clipboard mirror
+ * (getClipboardText) is synchronous, so getScrap gets a value in time.
+ *
+ * Mac TEXT uses '\r' line breaks; the host clipboard uses '\n'. Convert on
+ * the way out and back, exactly like the X11 front-end's Scrap bridge.
+ * Bytes are treated as Latin-1: v1 is ASCII-clean; MacRoman ↔ Unicode and
+ * non-TEXT flavors ('PICT', 'styl') are a later pass (issue #659 scope). */
+
+void SDL2VideoDriver::putScrap(Executor::OSType type, Executor::LONGINT length,
+                               char *p, int /*scrap_count*/)
+{
+    if(type != "TEXT"_4)
+        return;
+#ifdef __EMSCRIPTEN__
+    std::string text(p, p + (length > 0 ? length : 0));
+    for(char &c : text)
+        if(c == '\r')
+            c = '\n';
+    MAIN_THREAD_EM_ASM(
+        {
+            if(!Module.pcPutScrap)
+                return;
+            var s = "";
+            for(var i = 0; i < $1; i++)
+                s += String.fromCharCode(HEAPU8[$0 + i]);
+            Module.pcPutScrap(s);
+        },
+        text.data(), (int)text.size());
+#else
+    (void)p;
+    (void)length;
+#endif
+}
+
+Executor::LONGINT SDL2VideoDriver::getScrap(Executor::OSType type,
+                                            Executor::Handle h)
+{
+    if(type != "TEXT"_4)
+        return -1; /* base falls through to the in-memory Scrap */
+#ifdef __EMSCRIPTEN__
+    /* JS mallocs a [uint32 len][len Latin-1 bytes] buffer, or returns 0. */
+    uint32_t *buf = (uint32_t *)(uintptr_t)(uint32_t) MAIN_THREAD_EM_ASM_INT({
+        if(!Module.pcGetScrapText)
+            return 0;
+        var text = Module.pcGetScrapText() || "";
+        var len = text.length;
+        var ptr = _malloc(len + 4);
+        HEAPU32[ptr >> 2] = len;
+        for(var i = 0; i < len; i++)
+            HEAPU8[ptr + 4 + i] = text.charCodeAt(i) & 0xff;
+        return ptr;
+    });
+    if(!buf)
+        return -1;
+    uint32_t len = buf[0];
+    const char *bytes = (const char *)(buf + 1);
+    Executor::LONGINT ret = -1;
+    if(len > 0)
+    {
+        SetHandleSize(h, (Size)len);
+        if(LM(MemErr) == noErr)
+        {
+            char *dst = *h;
+            for(uint32_t i = 0; i < len; i++)
+                dst[i] = (bytes[i] == '\n') ? '\r' : bytes[i];
+            ret = (Executor::LONGINT)len;
+        }
+    }
+    std::free(buf);
+    return ret;
+#else
+    (void)h;
+    return -1;
+#endif
 }

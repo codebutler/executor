@@ -654,8 +654,10 @@ foreach(FRONT_END ${BUILT_FRONT_ENDS})
             -sENVIRONMENT=web,worker,node
             -sEXPORTED_RUNTIME_METHODS=FS,callMain,PThread,ENV,HEAPU8,HEAPU32
             # pc rootless-windows bridge (wind/pcbridge.cpp): snapshot table
-            # + input ring, polled from the embedding page.
-            -sEXPORTED_FUNCTIONS=_main,_pc_rootless_table,_pc_rootless_ring
+            # + input ring, polled from the embedding page. _malloc/_free back
+            # the clipboard bridge's getScrap buffer (issue #659 — the JS side
+            # of MAIN_THREAD_EM_ASM allocates it, the C++ side frees it).
+            -sEXPORTED_FUNCTIONS=_main,_pc_rootless_table,_pc_rootless_ring,_malloc,_free
             -sFORCE_FILESYSTEM=1
             -sFS_DEBUG=1
             -lidbfs.js

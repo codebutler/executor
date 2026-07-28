@@ -23,6 +23,15 @@ public:
      * thread (doevent polls this; true → gd_vdriver_mode_changed runs). */
     bool updateMode() override;
 
+    /* pc clipboard bridge (issue #659): the TEXT scrap flavor ↔ the host
+     * (pc / browser) clipboard, so copy/paste crosses per-instance engines
+     * and reaches the rest of pc. Non-TEXT flavors fall through to the base
+     * in-memory Scrap. */
+    void putScrap(Executor::OSType type, Executor::LONGINT length,
+                  char *p, int scrap_count) override;
+    Executor::LONGINT getScrap(Executor::OSType type,
+                               Executor::Handle h) override;
+
 private:
     void requestUpdate() override;
     void onMainThread(std::function<void()> f); 
