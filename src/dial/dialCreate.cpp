@@ -381,7 +381,15 @@ DialogPtr Executor::C_GetNewDialog(INTEGER id, void* dst,
     dialog_ctab_res_h = ROMlib_getrestid("dctb"_4, id);
     item_ctab_res_h = ROMlib_getrestid("ictb"_4, id);
 
-    color_p = (dialog_ctab_res_h || item_ctab_res_h);
+    /* Always create a color dialog. Classic GetNewDialog only used a
+     * CGrafPort when a dctb/ictb was present; otherwise NewWindow made a
+     * B&W GrafPort. Under our 32bpp rootless buffers (and even on a color
+     * screen framebuffer) that B&W port leaves FrameRect/FrameRoundRect
+     * for edit-fields and push buttons invisible — Flynn's Connect dialog
+     * showed label text with no field/button chrome. NewColorDialog already
+     * always uses a color port; match that. A missing dctb is fine —
+     * ROMlib_new_dialog_common skips SetWinColor when w_ctab is null. */
+    color_p = true;
 
     HLockGuard guard(dialog_res_h);
     Rect adjusted_rect;

@@ -396,6 +396,8 @@ void Executor::ROMlib_drawiptext(DialogPtr dp, itmp ip, int item_no)
                       &r, teFlushDefault);
         }
 
+        PenNormal();
+        RGBForeColor(&ROMlib_black_rgb_color);
         PORT_PEN_SIZE(qdGlobals().thePort).h = PORT_PEN_SIZE(qdGlobals().thePort).v = 1;
         InsetRect(&r, -3, -3);
         FrameRect(&r);
