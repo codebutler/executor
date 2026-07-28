@@ -340,7 +340,7 @@ OSErr Executor::ReadDateTime(GUEST<ULONGINT> *secs)
 
 OSErr Executor::SetDateTime(ULONGINT mactime)
 {
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
     struct timeval thetime;
 
     thetime.tv_sec = MACTIMETOGUNIXTIME(mactime);

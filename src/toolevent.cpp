@@ -21,6 +21,7 @@
 #include <TimeMgr.h>
 
 #include <quickdraw/cquick.h>
+#include <wind/pcbridge.h>
 #include <hfs/hfs.h>
 #include <res/resource.h>
 #include <hfs/futzwithdosdisks.h>
@@ -213,7 +214,10 @@ uint32_t Executor::C_KeyTranslate(Ptr mapp, unsigned short code, GUEST<uint32_t>
 
 void Executor::dofloppymount(void)
 {
-    futzwithdosdisks();
+    /* "Check For Disk": also re-scan the MacVolumes paths for disk images
+     * that appeared since boot (futzwithdosdisks itself is host-floppy
+     * machinery, compiled out on most platforms). */
+    ROMlib_rescanMacVolumes();
 }
 
 static void doquitreallyquits(void)
@@ -241,6 +245,10 @@ static Boolean doevent(INTEGER em, EventRecord *evt,
 
     if(vdriver->updateMode())
         Executor::gd_vdriver_mode_changed();
+
+    /* pc rootless: host-activation → guest activation, consumed before the
+     * click event is dequeued so FindWindow sees the host stacking. */
+    Executor::pcRootlessHandleRaise();
 
     hle_reset();
 

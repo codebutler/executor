@@ -279,6 +279,14 @@ source_group(QuickDraw FILES ${qd_sources})
 add_executable(mkseedtables quickdraw/mkseedtables/mkseedtables.c)
 add_executable(mkultable quickdraw/mkultable/mkultable.c)
 add_executable(mksspairtable quickdraw/mksspairtable/mksspairtable.c)
+
+if(EMSCRIPTEN)
+    # Host codegen tools run under node via CMAKE_CROSSCOMPILING_EMULATOR.
+    foreach(host_tool map_to_c mkseedtables mkultable mksspairtable)
+        target_link_options(${host_tool} PRIVATE -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=1)
+    endforeach()
+endif()
+
 add_custom_command(OUTPUT seedtables.ctable COMMAND mkseedtables > seedtables.ctable)
 add_custom_command(OUTPUT ultable.ctable COMMAND mkultable > ultable.ctable)
 add_custom_command(OUTPUT sspairtable.ctable COMMAND mksspairtable > sspairtable.ctable)
@@ -323,7 +331,8 @@ set(wind_sources
     
     wind/windColor.cpp wind/windDisplay.cpp wind/windDocdef.cpp
     wind/windInit.cpp wind/windMisc.cpp wind/windMouse.cpp wind/windSize.cpp
-    wind/windUpdate.cpp wind/windRootless.cpp)
+    wind/windUpdate.cpp wind/windRootless.cpp
+    wind/pcbridge.h wind/pcbridge.cpp)
 source_group(Windows FILES ${wind_sources})
 
 set(ae_sources
@@ -619,6 +628,39 @@ foreach(FRONT_END ${BUILT_FRONT_ENDS})
     endif()
     set_target_properties(executor-${FRONT_END} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+    if(EMSCRIPTEN)
+        # Emit executor.mjs directly (EXPORT_ES6): the glue embeds its own
+        # filename for pthread-worker spawning, so a post-build rename breaks
+        # worker boot with a 404 on the old name.
+        set_target_properties(executor-${FRONT_END} PROPERTIES SUFFIX ".mjs")
+        # Browser/pc build: main() runs on a pthread (PROXY_TO_PTHREAD), the
+        # emulator on a second std::thread, the timer on a third. The Mac RAM
+        # is malloc'd at boot, so the heap must grow. MODULARIZE so each
+        # launch is an isolated factory call (relaunch safety).
+        target_link_options(executor-${FRONT_END} PRIVATE
+            -pthread
+            -fwasm-exceptions
+            -sPROXY_TO_PTHREAD
+            -sPTHREAD_POOL_SIZE=8
+            -sALLOW_MEMORY_GROWTH=1
+            -sINITIAL_MEMORY=268435456
+            -sMAXIMUM_MEMORY=1073741824
+            -sSTACK_SIZE=1048576
+            -sDEFAULT_PTHREAD_STACK_SIZE=1048576
+            -sMODULARIZE=1
+            -sEXPORT_ES6=1
+            -sEXPORT_NAME=createExecutorModule
+            -sENVIRONMENT=web,worker,node
+            -sEXPORTED_RUNTIME_METHODS=FS,callMain,PThread,ENV,HEAPU8,HEAPU32
+            # pc rootless-windows bridge (wind/pcbridge.cpp): snapshot table
+            # + input ring, polled from the embedding page.
+            -sEXPORTED_FUNCTIONS=_main,_pc_rootless_table,_pc_rootless_ring
+            -sFORCE_FILESYSTEM=1
+            -sFS_DEBUG=1
+            -lidbfs.js
+        )
+    endif()
 
 
     if(APPLE AND NOT ${FRONT_END} STREQUAL headless)

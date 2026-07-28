@@ -2,6 +2,8 @@
 #include <SegmentLdr.h>
 
 #include "keycode_map.h"
+#include <wind/pcbridge.h>
+#include <algorithm>
 
 #include <SDL.h>
 
@@ -163,7 +165,15 @@ void SDL2VideoDriver::runEventLoop()
 
     for(;;)
     {
-        SDL_WaitEvent(&event);
+        /* pc rootless: injected per-window input arrives via a ring in
+         * shared memory (no DOM/SDL path); poll it a few times per frame.
+         * The timeout also bounds injected-input latency. */
+        int gotEvent = pcRootlessEnabled()
+            ? SDL_WaitEventTimeout(&event, 4)
+            : (SDL_WaitEvent(&event), 1);
+        pcRootlessDrainInput(callbacks_);
+        if(!gotEvent)
+            event.type = 0;
 
         switch(event.type)
         {
@@ -248,6 +258,9 @@ void SDL2VideoDriver::setCursor(char *cursor_data,
                                unsigned short cursor_mask[16],
                                int hotspot_x, int hotspot_y)
 {
+    /* pc rootless: mirror the cursor into the bridge table — the SDL
+     * cursor lands on a detached canvas nobody sees. */
+    Executor::pcRootlessSetCursor(cursor_data, cursor_mask, hotspot_x, hotspot_y);
     onMainThread([&] {
         SDL_Cursor *old_cursor, *new_cursor;
 
@@ -265,7 +278,47 @@ void SDL2VideoDriver::setCursor(char *cursor_data,
 
 void SDL2VideoDriver::setCursorVisible(bool show_p)
 {
+    Executor::pcRootlessSetCursorVisible(show_p);
     onMainThread([&] {
         SDL_ShowCursor(show_p);
     });
+}
+
+/* pc rootless: called on the emulator thread from doevent. A pending
+ * screen-size request rebuilds the framebuffer + SDL surface (on the SDL
+ * thread) and returns true so gd_vdriver_mode_changed() re-plumbs the
+ * GDevice, ports, and GrayRgn. */
+bool SDL2VideoDriver::updateMode()
+{
+    int w, h;
+    if(!Executor::pcRootlessTakeScreenSizeRequest(&w, &h))
+        return false;
+    if(w == framebuffer_.width && h == framebuffer_.height)
+        return false;
+
+    onMainThread([&] {
+        int bpp = framebuffer_.bpp ? framebuffer_.bpp : 32;
+        framebuffer_ = Executor::Framebuffer(w, h, bpp);
+        std::fill(framebuffer_.data.get(),
+                  framebuffer_.data.get()
+                      + (size_t)framebuffer_.rowBytes * framebuffer_.height,
+                  0);
+
+        if(sdlSurface)
+            SDL_FreeSurface(sdlSurface);
+        uint32_t pixelFormat = SDL_PIXELFORMAT_BGRX8888;
+        uint32_t rmask, gmask, bmask, amask;
+        int sdlBpp;
+        SDL_PixelFormatEnumToMasks(pixelFormat, &sdlBpp, &rmask, &gmask, &bmask, &amask);
+        if(sdlWindow)
+            SDL_SetWindowSize(sdlWindow, w, h);
+        sdlSurface = SDL_CreateRGBSurfaceFrom(
+            framebuffer_.data.get(),
+            framebuffer_.width, framebuffer_.height,
+            sdlBpp,
+            framebuffer_.rowBytes,
+            rmask, gmask, bmask, amask);
+        dirtyRects_.add(0, 0, h, w);
+    });
+    return true;
 }

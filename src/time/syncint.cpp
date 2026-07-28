@@ -8,7 +8,7 @@
 #include <array>
 #include <optional>
 
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__EMSCRIPTEN__)
 #define USE_TIMER_THREAD 1
 #define USE_SIGNALS 0
 #else

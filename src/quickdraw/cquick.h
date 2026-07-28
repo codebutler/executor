@@ -480,8 +480,15 @@ inline bool CICON_P(Handle _icon)
 extern void cursor_reset_current_cursor(void);
 
 #define IMV_XFER_MODE_P(mode) ((mode) >= blend && (mode) <= adMin)
-#define active_screen_addr_p(bitmap) \
-    ((bitmap)->baseAddr == PIXMAP_BASEADDR(GD_PMAP(LM(MainDevice))))
+/* pc rootless: window backing buffers are "screen-like" bits — same depth
+ * and blit specialization as the screen (see wind/pcbridge.h). NOTE: this
+ * header is already inside `namespace Executor`, so declare bare. */
+extern bool pcRootlessIsWinBuf(uint32_t baseAddr);
+
+#define active_screen_addr_p(bitmap)                                    \
+    ((bitmap)->baseAddr == PIXMAP_BASEADDR(GD_PMAP(LM(MainDevice)))     \
+     || ::Executor::pcRootlessIsWinBuf(                                 \
+            (uint32_t)(uintptr_t)(char *)((bitmap)->baseAddr)))
 
 /* gd flags */
 #define gdDevType 0

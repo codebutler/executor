@@ -12,6 +12,7 @@
 /* get {C}PORT_... accessors */
 #include <quickdraw/cquick.h>
 #include <wind/wind.h>
+#include <wind/pcbridge.h>
 
 using namespace Executor;
 
@@ -30,6 +31,7 @@ void Executor::C_SetWTitle(WindowPtr w, ConstStringPtr t)
         ClipAbove((WindowPeek)w);
         WINDCALL(w, wDraw, 0);
     }
+    pcRootlessPublish(); /* pc rootless: host titlebar follows */
 }
 
 void Executor::C_GetWTitle(WindowPtr w, StringPtr t)
@@ -76,6 +78,7 @@ void Executor::C_HiliteWindow(WindowPtr w, Boolean flag)
         WINDOW_HILITED(w) = false;
         WINDCALL(w, wDraw, 0);
     }
+    pcRootlessPublish(); /* pc rootless: host active state follows */
 }
 
 void Executor::C_BringToFront(WindowPtr w)
@@ -173,7 +176,11 @@ void Executor::C_ShowHide(WindowPtr w, Boolean flag)
         }
         if(content_color)
             RGBBackColor(content_color);
-        FillRgn(WINDOW_CONT_REGION(w), &qdGlobals().white);
+        {
+            /* pc rootless: the content fill lands in the window buffer */
+            PcFrameRedirect redirect((WindowPeek)w);
+            FillRgn(WINDOW_CONT_REGION(w), &qdGlobals().white);
+        }
         if(content_color)
             RGBBackColor(&ROMlib_white_rgb_color);
 

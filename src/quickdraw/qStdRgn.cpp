@@ -22,6 +22,7 @@
 #include <quickdraw/xdblt.h>
 #include <quickdraw/srcblt.h>
 #include <vdriver/dirtyrect.h>
+#include <wind/pcbridge.h>
 
 using namespace Executor;
 
@@ -201,8 +202,12 @@ void Executor::ROMlib_blt_rgn_update_dirty_rect(RgnHandle rh,
         int dst_top = dst_pm->bounds.top;
         int dst_left = dst_pm->bounds.left;
 
-        dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
-                          r->bottom - dst_top, r->right - dst_left);
+        /* pc rootless: window-buffer damage goes to the per-window rect */
+        if(!pcRootlessNoteDirty((uint32_t)(uintptr_t)(char *)dst_pm->baseAddr,
+                                r->top - dst_top, r->left - dst_left,
+                                r->bottom - dst_top, r->right - dst_left))
+            dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
+                              r->bottom - dst_top, r->right - dst_left);
     }
 
     TEMP_ALLOC_FREE(temp_alloc_space);
@@ -303,6 +308,11 @@ blt_pattern_to_bitmap_simple_mode(RgnHandle rh, INTEGER mode,
     if(screen_dst_p)
     {
         dst_pixmap = **main_gd_pmap;
+        /* pc rootless: "screen-like" covers private window buffers too —
+         * keep the DESTINATION's addr/rowBytes (identical to the screen's
+         * for the real screen), only the format comes from the device. */
+        dst_pixmap.baseAddr = dst->baseAddr;
+        dst_pixmap.rowBytes = dst->rowBytes | PIXMAP_DEFAULT_ROW_BYTES;
         ROMlib_fg_bk(&fg_pixel, &bk_pixel, nullptr, nullptr,
                      pixmap_rgb_spec(*main_gd_pmap),
                      true, false);
@@ -330,8 +340,11 @@ blt_pattern_to_bitmap_simple_mode(RgnHandle rh, INTEGER mode,
     if(screen_dst_p)
     {
         const Rect *r = &RGN_BBOX(rh);
-        dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
-                          r->bottom - dst_top, r->right - dst_left);
+        if(!pcRootlessNoteDirty((uint32_t)(uintptr_t)(char *)dst_pixmap.baseAddr,
+                                r->top - dst_top, r->left - dst_left,
+                                r->bottom - dst_top, r->right - dst_left))
+            dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
+                              r->bottom - dst_top, r->right - dst_left);
     }
 }
 
@@ -341,6 +354,7 @@ blt_pixpat_to_pixmap_simple_mode(RgnHandle rh, INTEGER mode,
 {
     bool screen_dst_p;
     int dst_top, dst_left;
+    uint32_t dst_base_for_dirty = 0;
 
     {
         HLockGuard guard1(srch), guard2(dsth);
@@ -352,6 +366,7 @@ blt_pixpat_to_pixmap_simple_mode(RgnHandle rh, INTEGER mode,
 
         dst_top = dst->bounds.top;
         dst_left = dst->bounds.left;
+        dst_base_for_dirty = (uint32_t)(uintptr_t)(char *)dst->baseAddr;
 
         if(src->patType == pixpat_old_style_pattern)
         {
@@ -432,8 +447,11 @@ blt_pixpat_to_pixmap_simple_mode(RgnHandle rh, INTEGER mode,
     if(screen_dst_p)
     {
         const Rect *r = &RGN_BBOX(rh);
-        dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
-                          r->bottom - dst_top, r->right - dst_left);
+        if(!pcRootlessNoteDirty(dst_base_for_dirty,
+                                r->top - dst_top, r->left - dst_left,
+                                r->bottom - dst_top, r->right - dst_left))
+            dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
+                              r->bottom - dst_top, r->right - dst_left);
     }
 }
 
@@ -592,8 +610,11 @@ blt_fancy_pat_mode_to_pixmap(RgnHandle rh, int mode,
         int dst_top = pixmap->bounds.top;
         int dst_left = pixmap->bounds.left;
 
-        dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
-                          r->bottom - dst_top, r->right - dst_left);
+        if(!pcRootlessNoteDirty((uint32_t)(uintptr_t)(char *)pixmap->baseAddr,
+                                r->top - dst_top, r->left - dst_left,
+                                r->bottom - dst_top, r->right - dst_left))
+            dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
+                              r->bottom - dst_top, r->right - dst_left);
     }
 
     HUnlock((Handle)xh);

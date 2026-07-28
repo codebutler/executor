@@ -14,6 +14,7 @@
 
 #include <quickdraw/cquick.h>
 #include <wind/wind.h>
+#include <wind/pcbridge.h>
 #include <rsys/hook.h>
 #include <MemoryMgr.h>
 
@@ -229,6 +230,11 @@ void Executor::C_ClipAbove(WindowPeek w)
 {
     WindowPeek wp;
 
+    /* pc rootless: nothing occludes anything (private buffers), and a
+     * window may live outside GrayRgn (the host desktop is the screen). */
+    if(pcRootlessEnabled())
+        return;
+
     SectRgn(PORT_CLIP_REGION(wmgr_port), LM(GrayRgn),
             PORT_CLIP_REGION(wmgr_port));
     for(wp = LM(WindowList); wp != w; wp = WINDOW_NEXT_WINDOW(wp))
@@ -308,7 +314,11 @@ void Executor::C_PaintOne(WindowPeek w, RgnHandle clobbered)
                     window_colors = validate_colors_for_window((WindowPtr)w);
 
                     RGBBackColor(&window_colors[wContentColor]);
-                    EraseRgn(rh);
+                    {
+                        /* pc rootless: erase into the window buffer */
+                        PcFrameRedirect redirect(w);
+                        EraseRgn(rh);
+                    }
 
                     /* restore the background color to it's usual
                           value */
@@ -372,11 +382,21 @@ void Executor::C_CalcVis(WindowPeek w)
 
     if(w && WINDOW_VISIBLE(w))
     {
-        SectRgn(LM(GrayRgn), WINDOW_CONT_REGION(w), PORT_VIS_REGION(w));
-        for(wp = LM(WindowList); wp != w; wp = WINDOW_NEXT_WINDOW(wp))
-            if(WINDOW_VISIBLE(wp))
-                DiffRgn(PORT_VIS_REGION(w), WINDOW_STRUCT_REGION(wp),
-                        PORT_VIS_REGION(w));
+        if(pcRootlessEnabled())
+        {
+            /* pc rootless: each window owns its full content pixels in a
+             * private buffer — nothing occludes anything, and the host
+             * desktop (not GrayRgn) decides what's on screen. */
+            CopyRgn(WINDOW_CONT_REGION(w), PORT_VIS_REGION(w));
+        }
+        else
+        {
+            SectRgn(LM(GrayRgn), WINDOW_CONT_REGION(w), PORT_VIS_REGION(w));
+            for(wp = LM(WindowList); wp != w; wp = WINDOW_NEXT_WINDOW(wp))
+                if(WINDOW_VISIBLE(wp))
+                    DiffRgn(PORT_VIS_REGION(w), WINDOW_STRUCT_REGION(wp),
+                            PORT_VIS_REGION(w));
+        }
         OffsetRgn(PORT_VIS_REGION(w),
                   PORT_BOUNDS(w).left,
                   PORT_BOUNDS(w).top);
@@ -541,7 +561,16 @@ int32_t Executor::ROMlib_windcall(WindowPtr wind, int16_t mess, int32_t param)
 
     ROMlib_hook(wind_wdefnumber);
     HLockGuard guard(defproc);
-    retval = wp(var(wind), wind, mess, param);
+    /* pc rootless: WDEF frame drawing (wDraw/wDrawGIcon) lands in the
+     * window's private buffer, not the invisible screen. wGrow is
+     * deliberately excluded — its XOR outline spans the desktop. */
+    {
+        PcFrameRedirect redirect(
+            (mess == wDraw || mess == wDrawGIcon) ? (WindowPeek)wind : nullptr);
+        retval = wp(var(wind), wind, mess, param);
+    }
+    if(mess == wCalcRgns)
+        pcRootlessSyncFrame((WindowPeek)wind);
 
 #if defined EVIL_ILLUSTRATOR_7_HACK
     ROMlib_evil_illustrator_7_hack = save_hack;

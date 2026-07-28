@@ -43,14 +43,27 @@
 #include <termios.h>
 #endif
 
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
 #include <sys/ioctl.h>
 #endif
 
 using namespace Executor;
 
-#if defined(__alpha) || defined(__linux__)
+#if defined(__alpha) || defined(__linux__) || defined(__EMSCRIPTEN__)
 #define TERMIO
+#endif
+
+#if defined(__EMSCRIPTEN__)
+/* emscripten's musl headers carry the TCGETA/TCSETA ioctl numbers but not
+ * the old SysV struct termio; provide it. No serial hardware exists in the
+ * browser -- every open fails at runtime -- but this keeps the TERMIO code
+ * path compiling. */
+struct termio
+{
+    unsigned short c_iflag, c_oflag, c_cflag, c_lflag;
+    unsigned char c_line;
+    unsigned char c_cc[8];
+};
 #endif
 
 /*
@@ -984,7 +997,7 @@ static OSErr C_ROMlib_serialstatus(ParmBlkPtr pbp, DCtlPtr dcp) /* INTERNAL */
         switch(pbp->cntrlParam.csCode)
         {
             case kSERDInputCount:
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
                 if(ioctl((*h)->fd, FIONREAD, &n) < 0)
 #else
                 if(serial_bios_fionread((*h)->fd, &n) < 0)
@@ -1000,7 +1013,7 @@ static OSErr C_ROMlib_serialstatus(ParmBlkPtr pbp, DCtlPtr dcp) /* INTERNAL */
                 }
                 break;
             case kSERDStatus:
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
                 if(ioctl((*h)->fd, FIONREAD, &n) < 0)
 #else
                 if(serial_bios_fionread((*h)->fd, &n) < 0)

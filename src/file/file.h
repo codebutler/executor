@@ -184,6 +184,7 @@ std::optional<FSSpec> cmdlinePathToFSSpec(const std::string& p);
 void ROMlib_fileinit(void);
 void InitSystemFolder(std::string systemFolder);
 void InitPaths();
+void ROMlib_rescanMacVolumes();
 
 typedef struct
 {

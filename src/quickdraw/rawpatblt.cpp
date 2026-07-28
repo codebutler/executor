@@ -195,7 +195,9 @@ fetch_next_y:
     num_rows = next_y - y;
 
     /* Call the blitter function. */
-    ((void (*)(const blt_section_t *, uint8_t *, long, long))
+    /* wasm: indirect calls trap unless the signature matches exactly --
+     * the generated blitters return const void* const*, so cast to that. */
+    ((const void *const *(*)(const blt_section_t *, uint8_t *, long, long))
          xdblt_stub_table[FUNC_PTR])(section,
                                      ((uint8_t *)xdblt_dst_baseaddr
                                       + (y * (int)xdblt_dst_row_bytes)),

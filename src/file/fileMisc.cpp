@@ -25,6 +25,7 @@
 
 #include <ctype.h>
 #include <algorithm>
+#include <set>
 
 #include <cmrc/cmrc.hpp>
 
@@ -338,23 +339,42 @@ static void ForEachPath(std::string_view macVolumes, F f)
         f(s);
 }
 
+/* Every volume file we've handed to ROMlib_openharddisk, so a runtime
+ * rescan (ROMlib_rescanMacVolumes, wired to the Browser's "Check For
+ * Disk") never mounts the same image twice. */
+static std::set<std::string> mountedVolumePaths;
+
+static void openIfNew(const fs::path& p)
+{
+    GUEST<LONGINT> m;
+    if(mountedVolumePaths.insert(p.string()).second)
+        ROMlib_openharddisk(p.string().c_str(), &m);
+}
+
 static void MountMacVolumes(std::string macVolumes)
 {
     ForEachPath(macVolumes, [](std::string_view pathstr) {
         fs::path path(expandPath(std::string(pathstr)));
-        GUEST<LONGINT> m;
 
         if(fs::is_directory(path))
         {
             for(auto& file : fs::directory_iterator(path))
                 if(!fs::is_directory(file))
-                    ROMlib_openharddisk(file.path().string().c_str(), &m);
+                    openIfNew(file.path());
         }
-        else
-            ROMlib_openharddisk(path.string().c_str(), &m);
+        else if(fs::exists(path))
+            openIfNew(path);
     });
 
     futzwithdosdisks();
+}
+
+/* Runtime re-scan of the MacVolumes paths: mount any image that appeared
+ * since boot (e.g. dropped into a host-mirrored folder). Called from
+ * dofloppymount() -- the Browser's File > Check For Disk. */
+void Executor::ROMlib_rescanMacVolumes()
+{
+    MountMacVolumes(ROMlib_MacVolumes);
 }
 
 void Executor::InitSystemFolder(std::string systemFolder)

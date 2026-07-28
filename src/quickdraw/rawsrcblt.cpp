@@ -209,7 +209,9 @@ fetch_next_y:
 
         first_y = srcblt_reverse_scanlines_p ? (next_y - 1) : y;
 
-        ((void (*)(const blt_section_t *, const uint8_t *, uint8_t *, long))
+        /* wasm: exact-signature indirect call; generated blitters return
+         * const void* const*. */
+        ((const void *const *(*)(const blt_section_t *, const uint8_t *, uint8_t *, long))
              srcblt_stub_table[FUNC_PTR])(section,
                                           ((const uint8_t *)srcblt_src_baseaddr
                                            + (first_y * srcblt_src_row_bytes)),

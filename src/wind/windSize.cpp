@@ -15,6 +15,7 @@
 
 #include <quickdraw/cquick.h>
 #include <wind/wind.h>
+#include <wind/pcbridge.h>
 
 #include <algorithm>
 
@@ -33,6 +34,29 @@ void Executor::C_MoveWindow(WindowPtr wp, INTEGER h, INTEGER v, Boolean front)
     WindowPeek w;
 
     w = (WindowPeek)wp;
+
+    /* pc rootless: the buffer travels with the window — no screen blit, no
+     * occlusion churn, no repaint. Just offset the regions and re-bias.
+     * Cheap enough to run per-mousemove for live drags. */
+    if(pcRootlessEnabled())
+    {
+        int dh = h + PORT_BOUNDS(w).left - PORT_RECT(w).left;
+        int dv = v + PORT_BOUNDS(w).top - PORT_RECT(w).top;
+        if(dh || dv)
+        {
+            OffsetRgn(WINDOW_STRUCT_REGION(w), dh, dv);
+            OffsetRgn(WINDOW_CONT_REGION(w), dh, dv);
+            OffsetRgn(WINDOW_UPDATE_REGION(w), dh, dv);
+            OffsetRect(&PORT_BOUNDS(w), -dh, -dv);
+            pcRootlessWindowMoved(w);
+        }
+        if(front)
+            SelectWindow((WindowPtr)w);
+        if(WINDOW_VISIBLE(w))
+            ROMlib_rootless_update();
+        return;
+    }
+
     gp = qdGlobals().thePort;
     if(WINDOW_VISIBLE(w))
     {
@@ -133,6 +157,8 @@ void Executor::C_MoveWindow(WindowPtr wp, INTEGER h, INTEGER v, Boolean front)
     OffsetRgn(WINDOW_CONT_REGION(w), h, v);
     OffsetRgn(WINDOW_UPDATE_REGION(w), h, v);
     OffsetRect(&PORT_BOUNDS(w), -h, -v);
+    /* pc rootless: bounds moved → re-bias the backing buffer's baseAddr */
+    pcRootlessWindowMoved(w);
     if(WINDOW_VISIBLE(w))
     {
         ClipRect(&GD_BOUNDS(LM(TheGDevice)));
@@ -175,6 +201,37 @@ void Executor::C_DragWindow(WindowPtr wp, Point p, const Rect *rp)
     cmddown = (bool)(ev.modifiers & cmdKey);
     if(cmddown)
         ClipAbove((WindowPeek)wp);
+
+    /* pc rootless: no XOR outline (it would draw on the invisible screen) —
+     * live-move the window each mouse step instead; the host window follows
+     * through the moved-hook. Mirrors GrowWindow's tracking loop. */
+    if(pcRootlessEnabled())
+    {
+        Point last = p;
+        int origH = -PORT_BOUNDS(wp).left + PORT_RECT(wp).left;
+        int origV = -PORT_BOUNDS(wp).top + PORT_RECT(wp).top;
+        Rect pin = *rp;
+        if(pin.top < 24)
+            pin.top = 24;
+        EventRecord ev2;
+        while(!GetOSEvent(mUpMask, &ev2))
+        {
+            Point ep = ev2.where.get();
+            LONGINT pinned = PinRect(&pin, ep);
+            ep.v = HiWord(pinned);
+            ep.h = LoWord(pinned);
+            if(ep.h != last.h || ep.v != last.v)
+            {
+                MoveWindow(wp, origH + ep.h - p.h, origV + ep.v - p.v, false);
+                last = ep;
+            }
+            CALLDRAGHOOK();
+        }
+        if(!cmddown)
+            SelectWindow(wp);
+        return;
+    }
+
     rh = NewRgn();
     CopyRgn(WINDOW_STRUCT_REGION(wp), rh);
     r = *rp;
@@ -241,6 +298,37 @@ LONGINT Executor::C_GrowWindow(WindowPtr w, Point startp, const Rect *rp)
     pinr.right  = std::min(32767, startp.h - (r.right - r.left) + (int)rp->right);
     pinr.bottom = std::min(32767, startp.v - (r.bottom - r.top) + (int)rp->bottom);
 
+    /* pc rootless: no XOR outline (invisible screen) — live-resize the
+     * window each mouse step instead; the host window follows through the
+     * wCalcRgns → syncFrame path. The app still gets the classic contract
+     * (returns the final size; its own SizeWindow call is then a no-op
+     * size-wise). Content repaints on the update events SizeWindow posts. */
+    if(pcRootlessEnabled())
+    {
+        EventRecord ev2;
+        Point last = p;
+        int baseW = r.right - r.left;
+        int baseH = r.bottom - r.top;
+        while(!GetOSEvent(mUpMask, &ev2))
+        {
+            Point ep = ev2.where.get();
+            LONGINT pinned = PinRect(&pinr, ep);
+            ep.v = HiWord(pinned);
+            ep.h = LoWord(pinned);
+            if(ep.h != last.h || ep.v != last.v)
+            {
+                last = ep;
+                SizeWindow(w, baseW + (ep.h - startp.h),
+                           baseH + (ep.v - startp.v), true);
+            }
+            CALLDRAGHOOK();
+        }
+        if(last.h != startp.h || last.v != startp.v)
+            return (((LONGINT)(baseH + (last.v - startp.v)) << 16)
+                    | (unsigned short)(baseW + (last.h - startp.h)));
+        return 0L;
+    }
+
     gp = qdGlobals().thePort;
     SETUP_PORT((GrafPtr)LM(WMgrPort));
     SETUP_PORT(wmgr_port);
@@ -284,6 +372,9 @@ void Executor::C_SizeWindow(WindowPtr w, INTEGER width, INTEGER height,
 
         PORT_RECT(w).right = PORT_RECT(w).left + width;
         PORT_RECT(w).bottom = PORT_RECT(w).top + height;
+
+        /* pc rootless: grow/shrink the private backing buffer */
+        pcRootlessWindowResized((WindowPeek)w);
 
         ThePortGuard guard(wmgr_port);
         WINDCALL(w, wCalcRgns, 0);
