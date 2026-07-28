@@ -153,7 +153,7 @@ realhilite(int16_t offset, highstate h)
             mbar_height = LM(MBarHeight);
 
             r = PORT_RECT(wmgr_port);
-            r.bottom = mbar_height - 1;
+            r.bottom = mbar_height; /* exclusive edge — see mbdf_draw */
 
             if(h == HILITE)
                 menu_title_color(0, &bar_color);
@@ -187,7 +187,12 @@ mbdf_draw(int32_t draw_p)
     Rect r;
 
     r = PORT_RECT(wmgr_port);
-    r.bottom = LM(MBarHeight) - 1;
+    /* Inclusive of the bottom rule row: QD rects exclude `bottom`, so
+     * MBarHeight (not MBarHeight-1) is the correct exclusive edge. The
+     * previous MBarHeight-1 left the rule row outside the clip, so the
+     * LineTo below was a no-op and any MBarHeight/GrayRgn skew showed up
+     * as a garbage strip under the bar (Flynn's Connect dialog). */
+    r.bottom = LM(MBarHeight);
     ClipRect(&r);
 
     menu_bar_color(&bar_color);
