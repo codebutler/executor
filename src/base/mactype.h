@@ -53,6 +53,10 @@ auto SwapTyped(T x) -> std::enable_if_t<std::is_integral_v<T>, T>
 
 inline uint16_t *SYN68K_TO_US_CHECK0_CHECKNEG1(syn68k_addr_t addr)
 {
+    /* 24-bit master-pointer tag bits (MacPaint et al.) are handled
+     * generically inside SYN68K_TO_US (syn68k_public.h) now — it clears
+     * the classic tag bits whenever the direct mapping would fall outside
+     * the wasm heap. No special-casing needed here beyond the -1 sentinel. */
     if(addr == (syn68k_addr_t)-1)
         return (uint16_t*) -1;
     else

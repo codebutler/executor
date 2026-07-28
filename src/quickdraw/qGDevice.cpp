@@ -413,6 +413,9 @@ static void gd_update_all_ports(GDHandle gdh, GUEST<Ptr> oldBaseAddr, Rect oldGD
         qdGlobals().screenBits.baseAddr = PIXMAP_BASEADDR(gd_pixmap);
         qdGlobals().screenBits.rowBytes = PIXMAP_ROWBYTES(gd_pixmap) / PIXMAP_PIXEL_SIZE(gd_pixmap);
         qdGlobals().screenBits.bounds = PIXMAP_BOUNDS(gd_pixmap);
+        /* Keep LM(ScreenRow) in sync — classic screen-smashers (MacPaint
+         * BufToScrn) read this low-mem global as the BitMap stride. */
+        LM(ScreenRow) = qdGlobals().screenBits.rowBytes;
 
         // FIXME: this is not what the Mac does.
         // on MacOS, a lowmem global at 0xD66 contains a Handle to a system heap block
@@ -458,8 +461,11 @@ static void gd_update_all_ports(GDHandle gdh, GUEST<Ptr> oldBaseAddr, Rect oldGD
             {
                 if(PORT_BITS(gp).baseAddr != oldBaseAddr)
                     continue;
+                /* B&W ports store a BitMap stride (bytes/row of 1-bit), not
+                 * the PixMap's deep rowBytes — same formula as screenBits. */
                 BITMAP_SET_ROWBYTES(&PORT_BITS(gp),
-                                      PIXMAP_ROWBYTES(gd_pixmap));
+                                      PIXMAP_ROWBYTES(gd_pixmap)
+                                          / PIXMAP_PIXEL_SIZE(gd_pixmap));
             }
 
             if(EqualRect(&PORT_RECT(gp), &oldGDRect))

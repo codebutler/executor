@@ -270,7 +270,23 @@ const uint32_t Executor::ROMlib_pixel_size_mask[6] = {
         else if(active_screen_addr_p(&the_port->portBits))                    \
         {                                                                     \
             PixMap copy_of_screen;                                            \
-            copy_of_screen = **GD_PMAP(LM(TheGDevice));                       \
+            /* pc rootless: a private winbuf under a <32bpp screen is 32bpp  \
+             * XRGB, not the MainDevice's 1-bit format — describe it as such \
+             * instead of copying the screen PixMap. */                       \
+            if(pcRootlessIsWinBuf(                                            \
+                   (uint32_t)(uintptr_t)(char *)the_port->portBits.baseAddr)  \
+               && PIXMAP_PIXEL_SIZE(GD_PMAP(LM(TheGDevice))) != 32)           \
+            {                                                                 \
+                copy_of_screen = **GD_PMAP(LM(TheGDevice));                   \
+                copy_of_screen.baseAddr = the_port->portBits.baseAddr;        \
+                copy_of_screen.rowBytes = the_port->portBits.rowBytes         \
+                    | PIXMAP_DEFAULT_ROW_BYTES;                               \
+                pixmap_set_pixel_fields(&copy_of_screen, 32);                 \
+            }                                                                 \
+            else                                                              \
+            {                                                                 \
+                copy_of_screen = **GD_PMAP(LM(TheGDevice));                   \
+            }                                                                 \
             copy_of_screen.bounds = the_port->portBits.bounds;                \
             blt_fancy_pat_mode_to_pixmap(rh, mode, nullptr,                   \
                                          &pattern_accessor(the_port),         \
@@ -313,9 +329,22 @@ blt_pattern_to_bitmap_simple_mode(RgnHandle rh, INTEGER mode,
          * for the real screen), only the format comes from the device. */
         dst_pixmap.baseAddr = dst->baseAddr;
         dst_pixmap.rowBytes = dst->rowBytes | PIXMAP_DEFAULT_ROW_BYTES;
-        ROMlib_fg_bk(&fg_pixel, &bk_pixel, nullptr, nullptr,
-                     pixmap_rgb_spec(*main_gd_pmap),
-                     true, false);
+        /* Private winbufs are always 32bpp XRGB. Under a <32bpp screen the
+         * MainDevice format would be 1-bit — force 32bpp so QD writes the
+         * right pixel size into the buffer. */
+        if(pcRootlessIsWinBuf((uint32_t)(uintptr_t)(char *)dst->baseAddr)
+           && bpp != 32)
+        {
+            pixmap_set_pixel_fields(&dst_pixmap, 32);
+            ROMlib_fg_bk(&fg_pixel, &bk_pixel, nullptr, nullptr,
+                         &mac_32bpp_rgb_spec, true, false);
+        }
+        else
+        {
+            ROMlib_fg_bk(&fg_pixel, &bk_pixel, nullptr, nullptr,
+                         pixmap_rgb_spec(*main_gd_pmap),
+                         true, false);
+        }
     }
     else
     {
@@ -375,10 +404,12 @@ blt_pixpat_to_pixmap_simple_mode(RgnHandle rh, INTEGER mode,
             uint32_t bk_color;
 
             dst_rgb_spec = pixmap_rgb_spec(dst);
-            canonical_from_bogo_color(PORT_FG_COLOR(the_port), dst_rgb_spec,
-                                      &fg_color, nullptr);
-            canonical_from_bogo_color(PORT_BK_COLOR(the_port), dst_rgb_spec,
-                                      &bk_color, nullptr);
+            /* pc rootless: route through ROMlib_fg_bk (same conversion for
+             * a CGrafPort) so the winbuf depth-mismatch handling applies —
+             * a raw canonical_from_bogo_color pass-through misreads the
+             * port's device-depth color indexes as deep pixels. */
+            ROMlib_fg_bk(&fg_color, &bk_color, nullptr, nullptr,
+                         dst_rgb_spec, true, false);
 
             xdblt_pattern(rh, mode, -dst_left, -dst_top,
                           src->pat1Data, dst, fg_color,

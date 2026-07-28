@@ -90,7 +90,14 @@ bool SDL2VideoDriver::setMode(int width, int height, int bpp, bool grayscale_p)
         if(!bpp)
             bpp = framebuffer_.bpp;
         if(!bpp)
-            bpp = 8;
+        {
+            /* pc rootless expects a real 1-bit screenBits BitMap so classic
+             * BufToScrn / ScreenRow smashers work; SDL's historic default of
+             * 8bpp breaks that (screenBits.rowBytes becomes width/8 while the
+             * framebuffer is packed 8bpp). */
+            const char *rootless = getenv("PC_ROOTLESS_WINDOWS");
+            bpp = (rootless && rootless[0] == '1') ? 1 : 8;
+        }
 
         framebuffer_ = Framebuffer(width, height, bpp);
 

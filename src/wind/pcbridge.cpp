@@ -10,11 +10,13 @@
  * (frame + content; buffer origin = struct top-left in guest-global
  * coords). Until the first wCalcRgns the struct rect is assumed equal to
  * the content rect; pcRootlessSyncFrame grows the buffer once the WDEF
- * has computed the real regions. The baseAddr stored in the window port
- * (and temporarily in WMgrCPort during PcFrameRedirect) is BIASED so that
- * classic bounds-based addressing hits the buffer: real − (sy·rowBytes +
- * sx·4). The dirty-note sites hand us GLOBAL coordinates (rect minus the
- * bitmap's bounds top-left is global for every biased bitmap by
+ * has computed the real regions. For private-buffer windows the baseAddr
+ * stored in the window port (and temporarily in WMgrCPort during
+ * PcFrameRedirect) is BIASED so that classic bounds-based addressing hits
+ * the buffer: real − (sy·rowBytes + sx·4). Screen-backed B&W windows keep
+ * portBits on screenBits and only the host-facing display buffer is
+ * private. The dirty-note sites hand us GLOBAL coordinates (rect minus
+ * the bitmap's bounds top-left is global for every biased bitmap by
  * construction); we translate by (sx,sy) into buffer coords.
  */
 
@@ -33,9 +35,11 @@
 #include <algorithm>
 #include <atomic>
 #include <vector>
+#include <climits>
 #include <cstdlib>
 #include <cstring>
 #include <unordered_map>
+#include <MemoryMgr.h>
 
 #ifdef EMSCRIPTEN
 #include <emscripten.h>
@@ -121,15 +125,19 @@ InputRing ring = { 0, 0, RING_CAP, 0, {} };
 struct BufRec
 {
     WindowPeek w;
-    uint8_t *bytes; /* real (unbiased) buffer */
+    uint8_t *bytes; /* real (unbiased) buffer — private QD bits, or the
+                     * host-only display buffer when screenBacked */
     int sw, sh, rowBytes; /* buffer (struct) dims */
     int sx, sy; /* buffer origin, guest-global */
     int gx, gy; /* content origin, guest-global */
     int cw, ch; /* content size */
     int fl, ft; /* frame insets: content − struct origin */
-    uint32_t biased; /* the baseAddr value stored in the port's bits */
+    uint32_t biased; /* the baseAddr value stored in the port's bits
+                      * (0 / unused when screenBacked) */
     int slot;
     bool shellApp; /* created while the shell (Browser) was CurApName */
+    bool screenBacked; /* B&W port on a <32bpp screen: portBits stay on
+                        * screenBits; `bytes` is host display only */
 };
 
 std::unordered_map<uint32_t, BufRec> byWin; /* WindowPeek → rec */
@@ -208,6 +216,16 @@ void setPortBaseAddr(WindowPeek w, uint32_t biased, int rowBytes)
     }
 }
 
+/* Point a color port at a private 32bpp winbuf. Under a <32bpp screen the
+ * port's pixmap still carries the device's 1-bit fields from InitCPort —
+ * upgrade them so QD blits at 32bpp into the buffer. */
+void setPortWinBuf(WindowPeek w, uint32_t biased, int rowBytes)
+{
+    setPortBaseAddr(w, biased, rowBytes);
+    if(CGrafPort_p(w) && PIXMAP_PIXEL_SIZE(GD_PMAP(LM(MainDevice))) != 32)
+        pixmap_set_pixel_fields(*CPORT_PIXMAP_X_NO_ASSERT((CGrafPtr)w), 32);
+}
+
 bool screen32()
 {
     return PIXMAP_PIXEL_SIZE(GD_PMAP(LM(MainDevice))) == 32;
@@ -247,6 +265,93 @@ void markFullDirty(BufRec &r)
     atomicStore(&s.dirtySeq, seq + 1);
 }
 
+/* Expand a screen-backed window's CONTENT from the 1-bit screenBits crop
+ * into its 32bpp host display buffer (big-endian XRGB: black=0x00000000,
+ * white=0x00FFFFFF). Only the content rect is written — frame insets are
+ * painted by WDEF via PcFrameRedirect into this same buffer, and must not
+ * be clobbered (struct regions often extend above screenBits.bounds; those
+ * pixels have no screen source). The optional clip (buffer coords) limits
+ * the refresh to a damaged sub-rect. */
+void expandScreenBacked(BufRec &r, int cl = INT_MIN, int ct = INT_MIN,
+                        int cr = INT_MAX, int cb = INT_MAX)
+{
+    if(!r.screenBacked || !r.bytes)
+        return;
+
+    const BitMap &sb = qdGlobals().screenBits;
+    const uint8_t *srcBase = (const uint8_t *)(char *)sb.baseAddr;
+    const int srcRB = BITMAP_ROWBYTES(&sb);
+    const int screenL = sb.bounds.left;
+    const int screenT = sb.bounds.top;
+    const int screenW = sb.bounds.right - sb.bounds.left;
+    const int screenH = sb.bounds.bottom - sb.bounds.top;
+
+    /* Content rect in buffer coords, intersected with the clip. */
+    const int x0 = std::max({0, r.fl, cl});
+    const int y0 = std::max({0, r.ft, ct});
+    const int x1 = std::min({r.sw, r.fl + r.cw, cr});
+    const int y1 = std::min({r.sh, r.ft + r.ch, cb});
+    if(x0 >= x1 || y0 >= y1)
+        return;
+
+    for(int y = y0; y < y1; y++)
+    {
+        const int srcY = (r.sy + y) - screenT;
+        uint8_t *dstRow = r.bytes + (size_t)y * r.rowBytes;
+        for(int x = x0; x < x1; x++)
+        {
+            const int srcX = (r.sx + x) - screenL;
+            bool black = false;
+            if(srcY >= 0 && srcX >= 0 && srcX < screenW && srcY < screenH
+               && srcRB > 0)
+            {
+                const size_t off = (size_t)srcY * (size_t)srcRB
+                    + (size_t)(srcX >> 3);
+                const uint8_t byte = srcBase[off];
+                black = (byte & (0x80 >> (srcX & 7))) != 0;
+            }
+            uint8_t *d = dstRow + (size_t)x * 4;
+            if(black)
+            {
+                d[0] = 0x00;
+                d[1] = 0x00;
+                d[2] = 0x00;
+                d[3] = 0x00;
+            }
+            else
+            {
+                /* big-endian XRGB 0x00FFFFFF — byte 0 is X; JS reads [1..3]
+                 * as RGB. Matches the white=0xFF private-buffer fill for R/G/B. */
+                d[0] = 0x00;
+                d[1] = 0xFF;
+                d[2] = 0xFF;
+                d[3] = 0xFF;
+            }
+        }
+    }
+
+    /* Dirty just the content — frame chrome is dirtied by PcFrameRedirect
+     * draws through pcRootlessNoteDirty. */
+    WinSlot &s = table.wins[r.slot];
+    uint32_t seq = atomicLoad(&s.dirtySeq);
+    uint32_t ack = atomicLoad(&s.dirtyAck);
+    if(ack == seq)
+    {
+        s.dl = x0;
+        s.dt = y0;
+        s.dr = x1;
+        s.db = y1;
+    }
+    else
+    {
+        s.dl = std::min(s.dl, x0);
+        s.dt = std::min(s.dt, y0);
+        s.dr = std::max(s.dr, x1);
+        s.db = std::max(s.db, y1);
+    }
+    atomicStore(&s.dirtySeq, seq + 1);
+}
+
 /* Drop a registry record without touching the WindowRecord: used when the
  * guest ABANDONED the window (InitWindows at app launch resets
  * LM(WindowList) without CloseWindow) — the record's memory may already be
@@ -258,17 +363,22 @@ void dropRecordNoPort(uint32_t key)
         return;
     BufRec &r = it->second;
     table.wins[r.slot].hwnd = 0;
+    /* Display buffers are always registered in byBiased (for PcFrameRedirect
+     * / dirty notes), even when the window port stays screen-backed. */
     byBiased.erase(r.biased);
     free(r.bytes);
     byWin.erase(it);
 }
 
+/* Recompute biased baseAddr after a geometry change. Private-buffer windows
+ * also retarget the port; screen-backed windows keep portBits on screenBits. */
 void rebias(BufRec &r, WindowPeek w)
 {
     byBiased.erase(r.biased);
     r.biased = biasedAddr(r);
     byBiased[r.biased] = &r;
-    setPortBaseAddr(w, r.biased, r.rowBytes);
+    if(!r.screenBacked)
+        setPortWinBuf(w, r.biased, r.rowBytes);
 }
 } /* namespace */
 
@@ -290,7 +400,7 @@ bool Executor::pcRootlessEnabled()
 
 void Executor::pcRootlessWindowCreated(WindowPeek w)
 {
-    if(!pcRootlessEnabled() || !screen32())
+    if(!pcRootlessEnabled())
         return;
     /* A live window can't share an address with another live window: an
      * existing entry here means the old WindowRecord was abandoned (app
@@ -319,6 +429,12 @@ void Executor::pcRootlessWindowCreated(WindowPeek w)
     r.rowBytes = r.sw * 4;
     r.slot = slot;
     r.shellApp = shellIsCurApp();
+    /* B&W GrafPort on a 1-bit screen: keep portBits on screenBits so
+     * classic screen-smashers (BufToScrn / ScreenRow) see a real 1-bit
+     * BitMap. Host compositor still gets a 32bpp display buffer (registered
+     * in byBiased for PcFrameRedirect — frame chrome often sits above the
+     * screen and must not be drawn into the framebuffer). */
+    r.screenBacked = (vdriver && vdriver->bpp() == 1) && !CGrafPort_p(w);
     r.bytes = (uint8_t *)malloc((size_t)r.rowBytes * r.sh);
     if(!r.bytes)
         return;
@@ -326,15 +442,22 @@ void Executor::pcRootlessWindowCreated(WindowPeek w)
 
     auto [it, ok] = byWin.emplace(winKey(w), r);
     BufRec &rec = it->second;
+
+    /* Always register the display/private buffer. Screen-backed ports stay
+     * on screenBits; only private-buffer windows retarget the port. */
     rec.biased = biasedAddr(rec);
     byBiased[rec.biased] = &rec;
-    setPortBaseAddr(w, rec.biased, rec.rowBytes);
+    if(!rec.screenBacked)
+        setPortWinBuf(w, rec.biased, rec.rowBytes);
 
     WinSlot &s = table.wins[slot];
     memset(&s, 0, sizeof(s));
     s.hwnd = winKey(w);
     publishGeometry(rec);
-    markFullDirty(rec);
+    if(rec.screenBacked)
+        expandScreenBacked(rec);
+    else
+        markFullDirty(rec);
     pcRootlessPublish();
 }
 
@@ -345,14 +468,25 @@ void Executor::pcRootlessWindowDisposed(WindowPeek w)
         return;
     BufRec &r = it->second;
 
-    /* Point the dying port back at the screen so any late draws scribble
-     * the (invisible) screen instead of freed memory. */
-    PixMapHandle screenPM = GD_PMAP(LM(MainDevice));
-    setPortBaseAddr(w, (uint32_t)(uintptr_t)(char *)PIXMAP_BASEADDR(screenPM),
-                    PIXMAP_ROWBYTES(screenPM) & 0x3FFF);
+    if(!r.screenBacked)
+    {
+        /* Point the dying port back at the screen so any late draws scribble
+         * the (invisible) screen instead of freed memory. */
+        PixMapHandle screenPM = GD_PMAP(LM(MainDevice));
+        setPortBaseAddr(w, (uint32_t)(uintptr_t)(char *)PIXMAP_BASEADDR(screenPM),
+                        PIXMAP_ROWBYTES(screenPM) & 0x3FFF);
+        if(CGrafPort_p(w) && !screen32())
+        {
+            /* Undo the 32bpp upgrade from setPortWinBuf. */
+            PixMapHandle pm = CPORT_PIXMAP_X_NO_ASSERT((CGrafPtr)w);
+            pixmap_set_pixel_fields(*pm, PIXMAP_PIXEL_SIZE(screenPM));
+            PIXMAP_SET_ROWBYTES(pm, PIXMAP_ROWBYTES(screenPM));
+        }
+    }
+    /* screenBacked: port already points at screenBits — leave it alone. */
 
-    table.wins[r.slot].hwnd = 0;
     byBiased.erase(r.biased);
+    table.wins[r.slot].hwnd = 0;
     free(r.bytes);
     byWin.erase(it);
     pcRootlessPublish();
@@ -463,7 +597,8 @@ void Executor::pcRootlessSyncFrame(WindowPeek w)
     r.ft = r.gy - r.sy;
     r.biased = biasedAddr(r);
     byBiased[r.biased] = &r;
-    setPortBaseAddr(w, r.biased, r.rowBytes);
+    if(!r.screenBacked)
+        setPortWinBuf(w, r.biased, r.rowBytes);
 
     publishGeometry(r);
     markFullDirty(r);
@@ -512,11 +647,16 @@ void Executor::pcRootlessPublish()
         if(it == byWin.end())
             continue;
         seen.push_back(winKey(wp));
-        WinSlot &s = table.wins[it->second.slot];
+        BufRec &rec = it->second;
+        /* Screen-backed B&W: refresh the host display buffer from the
+         * live screenBits crop so BufToScrn smash is visible. */
+        if(rec.screenBacked)
+            expandScreenBacked(rec);
+        WinSlot &s = table.wins[rec.slot];
         s.zorder = z++;
         s.flags = (WINDOW_VISIBLE(wp) ? 1 : 0) | (WINDOW_HILITED(wp) ? 2 : 0)
-            | (shellStripP(it->second, wp) ? 4 : 0);
-        publishGeometry(it->second);
+            | (shellStripP(rec, wp) ? 4 : 0);
+        publishGeometry(rec);
         count++;
 
         StringHandle th = WINDOW_TITLE(wp);
@@ -601,6 +741,26 @@ bool Executor::pcRootlessNoteDirty(uint32_t baseAddr, int top, int left,
     return true;
 }
 
+void Executor::pcRootlessScreenDamaged(int top, int left, int bottom, int right)
+{
+    if(!pcRootlessEnabled() || byWin.empty())
+        return;
+    /* Screen-backed windows draw their CONTENT straight onto screenBits;
+     * without this, a guest draw (a QD draw to the screen, or a direct
+     * screen-memory smash caught by refresh mode — MacPaint brush strokes)
+     * only reaches the host at the next Window-Manager publish. Refresh the
+     * damaged sub-rect of every intersecting screen-backed display buffer
+     * (coords are screen-relative == guest-global for the screen). */
+    for(auto &kv : byWin)
+    {
+        BufRec &r = kv.second;
+        if(!r.screenBacked || !r.bytes)
+            continue;
+        expandScreenBacked(r, left - r.sx, top - r.sy,
+                           right - r.sx, bottom - r.sy);
+    }
+}
+
 /* ── PcFrameRedirect ─────────────────────────────────────────────────── */
 
 PcFrameRedirect::PcFrameRedirect(WindowPeek w)
@@ -613,12 +773,23 @@ PcFrameRedirect::PcFrameRedirect(WindowPeek w)
     if(it == byWin.end())
         return;
     BufRec &r = it->second;
+    /* Redirect WMgrCPort onto the window's 32bpp display/private buffer —
+     * including screen-backed B&W windows. Their content stays on screenBits,
+     * but the struct frame (title bar, etc.) often extends above the screen;
+     * drawing that into the framebuffer underflows and traps. The display
+     * buffer covers the full struct rect; expandScreenBacked only refreshes
+     * the content crop so frame pixels survive. */
 
     PixMapHandle pm = CPORT_PIXMAP_X_NO_ASSERT((CGrafPtr)LM(WMgrCPort));
     savedBase_ = (void *)(uintptr_t)(uint32_t)(uintptr_t)(char *)PIXMAP_BASEADDR(pm);
     savedRowBytes_ = (*pm)->rowBytes.get();
+    savedPixelSize_ = PIXMAP_PIXEL_SIZE(pm);
     PIXMAP_BASEADDR(pm) = (Ptr)(uintptr_t)r.biased;
     (*pm)->rowBytes = (int16_t)(r.rowBytes | (savedRowBytes_ & 0xC000));
+    /* Under a <32bpp screen WMgrCPort is still the device depth — force 32bpp
+     * descriptors so frame blits match the display buffer (same as winbufs). */
+    if(savedPixelSize_ != 32)
+        pixmap_set_pixel_fields(*pm, 32);
 
     /* Safety: never let a frame draw escape the buffer — intersect the
      * wmgr clip with the struct region (both in global coords). */
@@ -639,6 +810,8 @@ PcFrameRedirect::~PcFrameRedirect()
     PixMapHandle pm = CPORT_PIXMAP_X_NO_ASSERT((CGrafPtr)LM(WMgrCPort));
     PIXMAP_BASEADDR(pm) = (Ptr)(uintptr_t)savedBase_;
     (*pm)->rowBytes = savedRowBytes_;
+    if(savedPixelSize_ && savedPixelSize_ != PIXMAP_PIXEL_SIZE(pm))
+        pixmap_set_pixel_fields(*pm, savedPixelSize_);
     if(savedClip_)
     {
         CopyRgn(savedClip_, PORT_CLIP_REGION(wmgr_port));

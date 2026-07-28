@@ -3,14 +3,27 @@
 /* pc rootless-windows bridge (wasm host integration, not upstream).
  *
  * When enabled (env PC_ROOTLESS_WINDOWS=1, set from the embedding page via
- * Module.ENV), every Mac window gets a PRIVATE 32bpp backing buffer instead
- * of drawing into the shared screen framebuffer:
+ * Module.ENV), Mac windows get host-compositor backing so each guest window
+ * can be mounted as its own host window. Window private buffers published to
+ * the host are always 32bpp (big-endian XRGB); the screen itself may be any
+ * depth:
  *
- *   - ROMlib_new_window_common points the fresh port's bits at the buffer
+ *   - 32bpp screen: every window (color or B&W) gets a PRIVATE 32bpp buffer.
+ *     ROMlib_new_window_common points the fresh port's bits at the buffer
  *     with a BIASED baseAddr, so the classic dual-duty portBits.bounds
  *     (pixel addressing AND LocalToGlobal) keeps working unchanged.
+ *
+ *   - Depth == 1 (classic 1-bit): CGrafPort / color windows still get private
+ *     32bpp buffers (QD blitters treat those baseAddrs as 32bpp winbufs).
+ *     B&W GrafPort windows stay SCREEN-BACKED — portBits remain on
+ *     screenBits so BufToScrn / ScreenRow smashers keep working; a separate
+ *     32bpp display buffer is filled from the screenBits CONTENT crop on
+ *     publish for the host compositor, while WDEF frame chrome is redirected
+ *     into that display buffer (struct regions often extend above the screen).
+ *
  *   - CalcVis stops subtracting the windows above: nothing occludes
- *     anything, each window always owns its full content pixels.
+ *     anything, each window always owns its full content pixels (private
+ *     buffers) or draws into the shared screen (screen-backed B&W).
  *   - The QuickDraw dirty-rect funnel routes window-buffer damage into a
  *     per-window dirty rect instead of the global screen dirty list.
  *   - Window Manager mutations publish a seqlock'd snapshot table into
@@ -18,10 +31,6 @@
  *     retitle/restack one host window per Mac window and blit dirty
  *     regions. An SPSC input ring carries mouse/key events back in, drained
  *     on the SDL thread into the normal IEventListener callbacks.
- *
- * Requires --bpp 32 (buffers inherit the screen depth; the "screen-like
- * bits" test tells the blitters a window buffer has screen depth, which is
- * only true at 32bpp for us).
  */
 
 #include <WindowMgr.h>
@@ -51,8 +60,10 @@ void pcRootlessPublish();
 /* RAII: while alive, WMgrCPort's pixmap points at `w`'s backing buffer and
  * its clip is intersected with w's struct region — so frame drawing (WDEF
  * wDraw/wDrawGIcon, content erases) lands in the window's buffer instead
- * of the invisible screen. Inert when disabled, w is null/unregistered, or
- * thePort isn't the window-manager port. Nests safely. */
+ * of the invisible screen. Applies to private-buffer AND screen-backed
+ * windows (screen-backed content stays on screenBits; only the frame is
+ * redirected). Inert when disabled, w is null/unregistered, or thePort
+ * isn't the window-manager port. Nests safely. */
 class PcFrameRedirect
 {
 public:
@@ -65,13 +76,16 @@ private:
     bool active_ = false;
     void *savedBase_ = nullptr;
     int16_t savedRowBytes_ = 0;
+    int16_t savedPixelSize_ = 0;
     RgnHandle savedClip_ = nullptr;
 };
 
 /* True if this baseAddr (as stored in a BitMap/PixMap) is a registered
  * window buffer — the "screen-like bits" extension used by
  * active_screen_addr_p so depth inference and blit specialization treat
- * window buffers exactly like the screen. */
+ * window buffers exactly like the screen. Screen-backed B&W window *ports*
+ * stay on screenBits; their display buffers ARE registered here so
+ * PcFrameRedirect frame draws hit the 32bpp winbuf path. */
 bool pcRootlessIsWinBuf(uint32_t baseAddr);
 
 /* Dirty-note hook for the QuickDraw accrue sites. Coordinates are
@@ -79,6 +93,14 @@ bool pcRootlessIsWinBuf(uint32_t baseAddr);
  * screen). Returns true when the bits belong to a window buffer (caller
  * skips the global screen accrue). */
 bool pcRootlessNoteDirty(uint32_t baseAddr, int top, int left, int bottom, int right);
+
+/* Screen-damage hook (from VideoDriver::updateScreen — covers QuickDraw's
+ * dirty_rect_accrue AND refresh mode's flush_shadow_screen, which catches
+ * apps writing screen memory directly): guest draws to the shared screen
+ * land in screen-backed windows' content, so refresh the damaged sub-rect
+ * of every intersecting screen-backed display buffer. Coordinates are
+ * screen-relative (== guest-global for the screen). */
+void pcRootlessScreenDamaged(int top, int left, int bottom, int right);
 
 /* Drain the input ring into the vdriver event callbacks. Called on the SDL
  * (front-end) thread each event-loop iteration. */

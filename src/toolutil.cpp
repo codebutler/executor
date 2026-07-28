@@ -242,10 +242,19 @@ DONE:
 
 void Executor::C_PackBits(GUEST<Ptr> *sp, GUEST<Ptr> *dp, INTEGER len)
 {
-    char *ip, *op, *ep, *erp, *markp, c;
+    char *ip, *op, *ip0, *op0, *ep, *erp, *markp, c;
 
-    ip = (char *)*sp;
-    op = (char *)*dp;
+    /* The classic ROM advances the caller's pointer variables in place, so
+     * any 24-bit master-pointer tag bits (MacPaint-style HLock) ride along
+     * unchanged through the high byte. Advance the ORIGINAL guest values by
+     * the host-side delta instead of round-tripping the host pointer through
+     * US_TO_SYN68K, which would strip the tags and leave the caller
+     * comparing tagged against untagged pointers. */
+    uint32_t ipGuest = sp->raw_host_order();
+    uint32_t opGuest = dp->raw_host_order();
+
+    ip = ip0 = (char *)*sp;
+    op = op0 = (char *)*dp;
     ep = ip + len;
     erp = ip + len - 2;
     markp = op++;
@@ -272,19 +281,22 @@ void Executor::C_PackBits(GUEST<Ptr> *sp, GUEST<Ptr> *dp, INTEGER len)
         }
         markp = op++;
     }
-    *sp = (Ptr)ip;
-    *dp = (Ptr)op - 1;
+    sp->raw_host_order(ipGuest + (uint32_t)(ip - ip0));
+    dp->raw_host_order(opGuest + (uint32_t)((op - 1) - op0));
 }
 
 #define UNPACK_BITS_BODY(out_type)                                           \
     do                                                                       \
     {                                                                        \
-        const int8_t *ip;                                                      \
-        out_type *op, *ep;                                                   \
+        const int8_t *ip, *ip0;                                              \
+        out_type *op, *op0, *ep;                                             \
+        /* Tag-preserving write-back — see C_PackBits. */                    \
+        uint32_t ipGuest = sp->raw_host_order();                             \
+        uint32_t opGuest = dp->raw_host_order();                             \
                                                                              \
-        ip = (const int8_t *)*sp;                                          \
-        op = (out_type *)*dp;                                            \
-        ep = (out_type *)((int8_t *)op + len);                                 \
+        ip = ip0 = (const int8_t *)*sp;                                      \
+        op = op0 = (out_type *)*dp;                                          \
+        ep = (out_type *)((int8_t *)op + len);                               \
                                                                              \
         while(op < ep)                                                       \
         {                                                                    \
@@ -305,8 +317,9 @@ void Executor::C_PackBits(GUEST<Ptr> *sp, GUEST<Ptr> *dp, INTEGER len)
             }                                                                \
         }                                                                    \
                                                                              \
-        *sp = (Ptr)ip;                                                   \
-        *dp = (Ptr)op;                                                   \
+        sp->raw_host_order(ipGuest + (uint32_t)(ip - ip0));                  \
+        dp->raw_host_order(opGuest                                           \
+                           + (uint32_t)((int8_t *)op - (int8_t *)op0));      \
     } while(false)
 
 void Executor::unpack_int16_t_bits(GUEST<Ptr> *sp, GUEST<Ptr> *dp, INTEGER len)
