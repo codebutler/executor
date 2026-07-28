@@ -357,6 +357,8 @@ int16_t calclhtab(TEHandle teh)
     {
         STPtr current_style;
 
+        if(STYLE_RUN_STYLE_INDEX(current_run) < 0)
+            break;
         current_style = ST_ELT(TE_STYLE_STYLE_TABLE(sth),
                                STYLE_RUN_STYLE_INDEX(current_run));
         if(clear_lh_p)
@@ -539,10 +541,13 @@ void Executor::ROMlib_caltext(TEHandle te,
 
         if(lh_first_changed != -1)
         {
+            /* calclhtab returns a *line index*; first/last_changed are
+             * character offsets for TE_DO_TEXT. */
+            int16_t lh_char = LINE_START(TE_LINE_STARTS(te), lh_first_changed);
             if(first_changed == -1)
-                first_changed = lh_first_changed;
+                first_changed = lh_char;
             else
-                first_changed = std::min(lh_first_changed, first_changed);
+                first_changed = std::min(lh_char, first_changed);
             last_changed = length;
         }
     }

@@ -263,6 +263,19 @@ void Executor::ROMlib_teinsertstyleinfo(TEHandle te,
         style_index = get_style_index(te_style, SCRAP_ELT_TO_ATTR(scrap_elt),
                                       false);
 
+        /* Inside Mac: StScrpRec carries per-run height/ascent. Prefer those
+         * over GetFontInfo so apps that hard-code line metrics (Wallops
+         * scrpHeight = fontSize+3) get matching lhTab entries. */
+        {
+            STElement *st_elt = ST_ELT(TE_STYLE_STYLE_TABLE(te_style),
+                                       style_index);
+            if(scrap_elt->scrpHeight > 0)
+            {
+                ST_ELT_HEIGHT(st_elt) = scrap_elt->scrpHeight;
+                ST_ELT_ASCENT(st_elt) = scrap_elt->scrpAscent;
+            }
+        }
+
         /* must swap here, the elt start char is a `int32_t' */
         STYLE_RUN_START_CHAR(new_run) = SCRAP_ELT_START_CHAR(scrap_elt);
         STYLE_RUN_STYLE_INDEX(new_run) = style_index;
@@ -306,7 +319,11 @@ void Executor::ROMlib_tedoitall(TEHandle teh, Ptr ptr, /* INTERNAL */
        && TE_LINE_HEIGHT(teh) == -1)
     {
         lht = TE_STYLE_LH_TABLE(te_style);
-        oldlh = (*lht + (*teh)->nLines - 1)->lhHeight;
+        /* Empty TE has nLines==0; (*lht + -1) reads before the table. */
+        if(TE_N_LINES(teh) > 0)
+            oldlh = (*lht + TE_N_LINES(teh) - 1)->lhHeight;
+        else
+            oldlh = LH_HEIGHT(*lht);
     }
     else
     {

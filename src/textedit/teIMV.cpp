@@ -153,10 +153,6 @@ int16_t Executor::make_style_run_at(TEStyleHandle te_style, int16_t sel)
 
 int16_t Executor::get_style_index(TEStyleHandle te_style, TextStyle *attrs, int incr_count_p)
 {
-    /* these hold the swapped cached height, ascent for the style we are
-     searching for */
-    GUEST<int16_t> cached_height = -1, cached_ascent = -1;
-    int cache_filled_p = false;
     STHandle style_table;
     STElement *st_elt;
     int st_i;
@@ -169,23 +165,15 @@ int16_t Executor::get_style_index(TEStyleHandle te_style, TextStyle *attrs, int 
         st_elt = ST_ELT(style_table, st_i);
 
         if(TS_FONT(attrs) == ST_ELT_FONT(st_elt)
-           && TS_SIZE(attrs) == ST_ELT_SIZE(st_elt))
+           && TS_SIZE(attrs) == ST_ELT_SIZE(st_elt)
+           && TS_FACE(attrs) == ST_ELT_FACE(st_elt)
+           && TS_COLOR(attrs).red == ST_ELT_COLOR(st_elt).red
+           && TS_COLOR(attrs).green == ST_ELT_COLOR(st_elt).green
+           && TS_COLOR(attrs).blue == ST_ELT_COLOR(st_elt).blue)
         {
-            if(TS_FACE(attrs) == ST_ELT_FACE(st_elt)
-               && (TS_COLOR(attrs).red == ST_ELT_COLOR(st_elt).red
-                   && TS_COLOR(attrs).green == ST_ELT_COLOR(st_elt).green
-                   && TS_COLOR(attrs).blue == ST_ELT_COLOR(st_elt).blue))
-            {
-                if(incr_count_p)
-                    ST_ELT_COUNT(st_elt) = ST_ELT_COUNT(st_elt) + 1;
-                return st_i;
-            }
-            else if(!cache_filled_p)
-            {
-                cached_height = ST_ELT_HEIGHT(st_elt);
-                cached_ascent = ST_ELT_ASCENT(st_elt);
-                cache_filled_p = true;
-            }
+            if(incr_count_p)
+                ST_ELT_COUNT(st_elt) = ST_ELT_COUNT(st_elt) + 1;
+            return st_i;
         }
     }
 
@@ -203,13 +191,9 @@ int16_t Executor::get_style_index(TEStyleHandle te_style, TextStyle *attrs, int 
     ST_ELT_SIZE(st_elt) = TS_SIZE(attrs);
     ST_ELT_COLOR(st_elt) = TS_COLOR(attrs);
 
-    if(cache_filled_p)
-    {
-        ST_ELT_HEIGHT(st_elt) = cached_height;
-        ST_ELT_ASCENT(st_elt) = cached_ascent;
-    }
-    else
-        generic_elt_calc_height_ascent(ST_ELT_TO_GENERIC_ELT(st_elt));
+    /* Always measure this face/size — the old code copied height from a
+     * same-font/size style with a different face (plain → bold|condense). */
+    generic_elt_calc_height_ascent(ST_ELT_TO_GENERIC_ELT(st_elt));
 
     return n_styles - 1;
 }
