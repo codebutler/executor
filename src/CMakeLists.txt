@@ -332,7 +332,8 @@ set(wind_sources
     wind/windColor.cpp wind/windDisplay.cpp wind/windDocdef.cpp
     wind/windInit.cpp wind/windMisc.cpp wind/windMouse.cpp wind/windSize.cpp
     wind/windUpdate.cpp wind/windRootless.cpp
-    wind/pcbridge.h wind/pcbridge.cpp)
+    wind/pcbridge.h wind/pcbridge.cpp
+    wind/mactcp_bridge.cpp)
 source_group(Windows FILES ${wind_sources})
 
 set(ae_sources
@@ -657,7 +658,7 @@ foreach(FRONT_END ${BUILT_FRONT_ENDS})
             # + input ring, polled from the embedding page. _malloc/_free back
             # the clipboard bridge's getScrap buffer (issue #659 — the JS side
             # of MAIN_THREAD_EM_ASM allocates it, the C++ side frees it).
-            -sEXPORTED_FUNCTIONS=_main,_pc_rootless_table,_pc_rootless_ring,_malloc,_free
+            -sEXPORTED_FUNCTIONS=_main,_pc_rootless_table,_pc_rootless_ring,_pc_mactcp_ring,_malloc,_free
             -sFORCE_FILESYSTEM=1
             -sFS_DEBUG=1
             -lidbfs.js

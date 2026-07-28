@@ -81,6 +81,10 @@
 #include <iostream>
 
 using namespace Executor;
+
+// pc MacTCP `.IPP` networking veneer (#711, wind/mactcp_bridge.cpp):
+// register the driver + the 'dnrp' DNR resource once at boot.
+extern "C" void pc_mactcp_init(void);
 using namespace std;
 
 namespace po = boost::program_options;
@@ -448,6 +452,12 @@ int main(int argc, char **argv)
             InitUtil();
 
             InitResources();
+
+            // #711: install the MacTCP `.IPP` driver + 'dnrp' DNR resource.
+            // Here (right after InitResources) the System file is the current
+            // resource file, so GetIndResource('dnrp',1) finds our resource,
+            // and RegisterDriver runs before InitAppFiles launches any app.
+            pc_mactcp_init();
             
             ROMlib_set_system_version(system_version);
 
