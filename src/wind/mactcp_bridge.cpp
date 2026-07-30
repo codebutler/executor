@@ -959,8 +959,21 @@ syn68k_addr_t dnrCallback(syn68k_addr_t /*addr*/, void* /*arg*/) {
       int res_len = 0;
       uint32_t ip = 0;
       if (host) {
-        int r = net_round(OP_RESOLVE, 0, 0, host, (int)strlen(host), 0, resolved, sizeof(resolved) - 1, &res_len);
-        if (r == 0 && res_len > 0) { resolved[res_len] = '\0'; ip = dottedToIp(resolved); }
+        // A real MacTCP 'dnrp' answers a syntactically-valid dotted-quad
+        // IMMEDIATELY and LOCALLY — StrToAddr("127.0.0.1", ...) never touches
+        // the network on real MacTCP; only a genuine hostname needs a lookup.
+        // dottedToIp() is the same strict "%u.%u.%u.%u" parser doGetAddr /
+        // doActiveOpen already use, so this costs nothing extra and matches
+        // the classic driver's own fast path. This is exactly what the guest
+        // 'dottedQuad' patch hand-reimplemented inline in 68k for Wallops
+        // (its own ip2long() sat >32KB away for a bsr.w to reach) — because
+        // the stub itself didn't do this. Now it does, so no guest code needs
+        // to.
+        ip = dottedToIp(host);
+        if (!ip) {
+          int r = net_round(OP_RESOLVE, 0, 0, host, (int)strlen(host), 0, resolved, sizeof(resolved) - 1, &res_len);
+          if (r == 0 && res_len > 0) { resolved[res_len] = '\0'; ip = dottedToIp(resolved); }
+        }
       }
       // Fill the hostInfo: rtnCode(long)@0, cname[255]@4, filler@259, addr[4]@260.
       // We resolve SYNCHRONOUSLY and return noErr, so the caller reads the result
