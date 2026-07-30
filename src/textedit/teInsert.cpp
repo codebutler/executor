@@ -375,6 +375,7 @@ void te_draw(TEPtr tep,
 
     Rect *view_rect;
     int16_t view_rect_bottom;
+    RgnHandle saved_clip;
 
     int16_t current_run_start, current_run_end;
     int16_t current_line_start, current_line_end;
@@ -464,6 +465,31 @@ void te_draw(TEPtr tep,
                   ? view_rect_bottom
                   : end_pt.v + TEP_HEIGHT_FOR_LINE(tep, end_lineno));
     SetRect(&r, dest_rect_left, top, dest_rect_right, bottom);
+
+    /* Confine BOTH the erase and the line drawing below to the TE's viewRect.
+     *
+     * Real TextEdit never paints outside viewRect: TEUpdate clips to the update
+     * rect intersected with viewRect. Executor clipped only the *choice* of
+     * lines (first/last_visible_lineno above) and then drew with whatever clip
+     * the port happened to carry, which for a typical app is the whole window.
+     * The draw loop advances current_line_top past the last requested line, so
+     * a partial (insert-time) redraw could paint a line below viewRect.bottom,
+     * over a neighbouring pane or over text that the clamped erase rect above
+     * had not cleared.
+     *
+     * Intersect rather than replace, so a caller that has already narrowed the
+     * clip to hide an off-screen re-layout still gets nothing drawn. */
+    saved_clip = NewRgn();
+    GetClip(saved_clip);
+    {
+        RgnHandle view_clip = NewRgn();
+
+        RectRgn(view_clip, view_rect);
+        SectRgn(saved_clip, view_clip, view_clip);
+        SetClip(view_clip);
+        DisposeRgn(view_clip);
+    }
+
     EraseRect(&r);
 
     if(TEP_STYLIZED_P(tep))
@@ -588,6 +614,9 @@ void te_draw(TEPtr tep,
                                 + TEP_ASCENT_FOR_LINE(tep, current_lineno)));
         }
     }
+
+    SetClip(saved_clip);
+    DisposeRgn(saved_clip);
 
     if(TEP_STYLIZED_P(tep))
     {
