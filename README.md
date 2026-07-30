@@ -6,10 +6,7 @@ No Apple ROM or system software required.
 
 This fork adds **WebAssembly / Emscripten** support and related browser-host
 integration (rootless windows, MacTCP veneer, scrap ↔ clipboard, Platinum
-Appearance Manager). Upstream Executor 2000 had **no wasm port** — no
-`__wasm__` / emscripten mentions in the tree — so the emscripten build,
-submodule wasm patches, and browser bridges here were developed for
-[pc](https://github.com/codebutler/pc) and live in this repository.
+Appearance Manager).
 
 ## Feature highlights (this fork)
 
@@ -30,19 +27,21 @@ submodule wasm patches, and browser bridges here were developed for
 
 Requirements beyond the native build: [Emscripten](https://emscripten.org/)
 (tested with 3.1.74), CMake, Ninja, Boost (filesystem + program_options),
-perl, ruby, bison. The [pc](https://github.com/codebutler/pc) repo's
-`vendor/executor/build.sh` is the reference pipeline (boost via b2, SDL2
-port, glue codemod).
+perl, ruby, bison.
 
 ```sh
 git submodule update --init --depth 1 syn68k PowerCore multiversal cxmon lmdb lmdbxx cmrc
 bash scripts/apply-wasm-patches.sh   # __wasm__ endianness / node codegen / clang-format
-# then emcmake + ninja with FRONT_ENDS=sdl2 — see pc's build.sh for link flags
+emcmake cmake -S . -B build-wasm -G Ninja -DFRONT_ENDS=sdl2 \
+  -DBoost_DIR=… -DSDL2_INCLUDE_DIR=… -DSDL2_LIBRARY=…
+cmake --build build-wasm --target executor-sdl2
 ```
 
 The three patches under `patches/wasm/` teach the still-autc04 submodules
 about wasm; they are generic port glue, not host-specific. Apply them after
-every fresh submodule checkout.
+every fresh submodule checkout. The CMakeLists already set the emscripten
+link flags (`PROXY_TO_PTHREAD`, MODULARIZE / `EXPORT_ES6`, memory growth,
+etc.) when `EMSCRIPTEN` is detected.
 
 Native (Qt / SDL / Wayland) builds continue to work as upstream documents
 below.
