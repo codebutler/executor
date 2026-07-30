@@ -1,0 +1,30 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4407adf..abc5469 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -4,6 +4,12 @@ cmake_minimum_required(VERSION 3.9)
+ 
+ add_executable(powergenerator generator/PowerGenerator.cc)
+ 
++if(EMSCRIPTEN)
++    # Host codegen tool: runs under node (CMAKE_CROSSCOMPILING_EMULATOR).
++    target_link_options(powergenerator PRIVATE -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=1)
++endif()
++
++
+ 
+ add_custom_command(
+     OUTPUT
+diff --git a/src/PowerCoreInlines.h b/src/PowerCoreInlines.h
+index 550f9e1..265d731 100644
+--- a/src/PowerCoreInlines.h
++++ b/src/PowerCoreInlines.h
+@@ -9,7 +9,7 @@
+ #elif defined(i386) \
+      || defined(__x86_64) || defined(__x86_64__) \
+      || defined (_M_X64) || defined(_M_IX86) \
+-     || defined(__arm__) || defined(__aarch64__)
++     || defined(__arm__) || defined(__aarch64__) || defined(__wasm__)
+ #define LITTLEENDIAN
+ #else
+ #error "Unknown CPU type"
