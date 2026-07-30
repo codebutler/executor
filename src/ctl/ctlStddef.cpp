@@ -11,6 +11,8 @@
 #include <MemoryMgr.h>
 
 #include <ctl/ctl.h>
+#include <rsys/appearance.h>
+#include <rsys/appearance_mgr.h>
 #include <quickdraw/cquick.h>
 
 using namespace Executor;
@@ -352,6 +354,12 @@ draw_radio(ControlHandle c, int16_t part)
 LONGINT Executor::C_cdef0(INTEGER var, ControlHandle c, INTEGER mess,
                           LONGINT param) /* IMI-328 */
 {
+    if(ROMlib_get_appearance() == appearance_platinum)
+    {
+        LONGINT pr = C_cdef_platinum(var, c, mess, param);
+        if(pr != -1)
+            return pr;
+    }
     Point p;
     Rect r;
     draw_state_t draw_state;

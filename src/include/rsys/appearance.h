@@ -18,6 +18,7 @@ namespace Executor
 typedef enum {
     appearance_sys7,
     appearance_win3,
+    appearance_platinum,
 } appearance_t;
 
 extern void ROMlib_set_appearance(void);

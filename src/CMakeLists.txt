@@ -31,6 +31,13 @@ if(WIN32 AND MSVC)
     )
 endif()
 
+# Platinum AM trap/API defs live in-tree (multiversal is a submodule we
+# don't fork). Copy into defs/ at configure time so make-multiverse sees it.
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/platinum/Appearance.yaml
+    ${CMAKE_CURRENT_SOURCE_DIR}/../multiversal/defs/Appearance.yaml
+    COPYONLY)
+
 file(GLOB api_yaml_files
     CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/../multiversal/defs/*.yaml)
@@ -519,6 +526,11 @@ set(misc_sources
   icon.cpp redrawscreen.cpp quicktime.cpp
   commtool.cpp cfm.cpp pef_hash.cpp
   mixed_mode.cpp appearance.cpp
+  platinum/appearance_mgr.cpp
+  platinum/theme_qd.cpp
+  platinum/wdef_platinum.cpp
+  platinum/cdef_platinum.cpp
+  platinum/menu_platinum.cpp
   executor.cpp  
   prefpanel.cpp
   qColorPicker.cpp
@@ -533,6 +545,7 @@ set(include_sources
                   include/rsys/adb.h
                   include/rsys/alias.h
                   include/rsys/appearance.h
+                  include/rsys/appearance_mgr.h
                   include/rsys/arrowkeys.h
                   include/rsys/color_wheel_bits.h
                   include/rsys/desk.h

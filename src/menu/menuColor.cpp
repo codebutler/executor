@@ -10,11 +10,19 @@
 
 #include <menu/menu.h>
 #include <quickdraw/cquick.h>
+#include <rsys/appearance.h>
+#include <rsys/appearance_mgr.h>
 
 using namespace Executor;
 
 void Executor::menu_bar_color(RGBColor *bar_color)
 {
+    if(ROMlib_get_appearance() == appearance_platinum)
+    {
+        platinum_menu_bar_color(bar_color);
+        return;
+    }
+
     MCEntryPtr mc_entry;
 
     mc_entry = GetMCEntry(0, 0);

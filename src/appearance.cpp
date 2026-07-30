@@ -209,6 +209,10 @@ Executor::ROMlib_set_appearance(void)
 {
     INTEGER res_file;
 
+    /* Native Platinum AM — no resource pack overlay. */
+    if(appearance == appearance_platinum)
+        return;
+
     res_file = OpenRFPerm(res_filenames[appearance], LM(BootDrive), fsRdPerm);
     if(res_file != -1)
     {
@@ -235,6 +239,8 @@ Executor::ROMlib_parse_appearance(const char *appearance_str)
         ROMlib_rect_buttons = true;
         appearance = appearance_win3;
     }
+    else if(strcmp(appearance_str, "platinum") == 0)
+        appearance = appearance_platinum;
     else
         retval = false;
 
