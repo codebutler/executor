@@ -1,5 +1,55 @@
-Executor 2000
-=============
+# Executor (codebutler fork)
+
+A fork of [Executor 2000](https://github.com/autc04/executor) — the
+open-source reimplementation of classic Mac OS APIs (the Wine of 68k Mac).
+No Apple ROM or system software required.
+
+This fork adds **WebAssembly / Emscripten** support and related browser-host
+integration (rootless windows, MacTCP veneer, scrap ↔ clipboard, Platinum
+Appearance Manager). Upstream Executor 2000 had **no wasm port** — no
+`__wasm__` / emscripten mentions in the tree — so the emscripten build,
+submodule wasm patches, and browser bridges here were developed for
+[pc](https://github.com/codebutler/pc) and live in this repository.
+
+## Feature highlights (this fork)
+
+- **WebAssembly** — builds with Emscripten as an ES module
+  (`createExecutorModule`) for browser embedding (`PROXY_TO_PTHREAD`,
+  MODULARIZE, growing memory, IDBFS).
+- **Rootless windows** — per-window backing buffers + host compositor bridge
+  (`pcbridge`) so Mac windows can mount as separate host windows.
+- **MacTCP `.IPP` veneer** — TCP/UDP/DNR for classic MacTCP clients over a
+  host-socket ring.
+- **Scrap ↔ host clipboard** bridge.
+- **Platinum Appearance Manager** — native Mac OS 8 chrome (`--appearance platinum`).
+- Plus everything from Executor 2000: modern Linux/macOS builds, rootless
+  desktop mode, PowerPC (limited), 24-bit addressing option, Basilisk /
+  SheepShaver file exchange, etc.
+
+## Building for WebAssembly
+
+Requirements beyond the native build: [Emscripten](https://emscripten.org/)
+(tested with 3.1.74), CMake, Ninja, Boost (filesystem + program_options),
+perl, ruby, bison. The [pc](https://github.com/codebutler/pc) repo's
+`vendor/executor/build.sh` is the reference pipeline (boost via b2, SDL2
+port, glue codemod).
+
+```sh
+git submodule update --init --depth 1 syn68k PowerCore multiversal cxmon lmdb lmdbxx cmrc
+bash scripts/apply-wasm-patches.sh   # __wasm__ endianness / node codegen / clang-format
+# then emcmake + ninja with FRONT_ENDS=sdl2 — see pc's build.sh for link flags
+```
+
+The three patches under `patches/wasm/` teach the still-autc04 submodules
+about wasm; they are generic port glue, not host-specific. Apply them after
+every fresh submodule checkout.
+
+Native (Qt / SDL / Wayland) builds continue to work as upstream documents
+below.
+
+---
+
+# Executor 2000 (upstream)
 
 This is a modernized (as of 2019) fork of Executor, the "original" version
 of which you can still find upstream at https://github.com/ctm/executor.
@@ -27,8 +77,9 @@ Executor 2000 feature highlights:
     still works, though, via Qt and SDL ports.)
   - I probably broke lots of other things that used to work.
 
-You can reach the maintainer of this fork at wolfgang.thaller@gmx.net or via
-the github issues page at https://github.com/autc4/executor/issues.
+You can reach the maintainer of the Executor 2000 fork at
+wolfgang.thaller@gmx.net or via the github issues page at
+https://github.com/autc04/executor/issues.
 
 License
 -------
@@ -202,6 +253,9 @@ libraries, and some which are maintained together with Executor.
 - `docs/outdated/` - Outdated docs that might help understanding the past of
     Executor.
 - `util/` - a collection of scripts and helper programs, all obsolete
+- `patches/wasm/` - wasm submodule glue (this fork; see above)
+- `src/platinum/` - native Platinum Appearance Manager (this fork)
+- `src/wind/pcbridge.*` / `mactcp_bridge.cpp` - browser-host bridges (this fork)
 
 ### The "Multiversal Interfaces"
 
@@ -241,4 +295,3 @@ be public. This should be systematically cleaned up at some point. Source files
 that didn't fit into any subdirectory have been left at the top level. The
 header files corresponding to those `.cpp` files can for historical reasons be
 found in `include/rsys/`. I never found out what `rsys` stands for.
-
