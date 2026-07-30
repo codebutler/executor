@@ -142,6 +142,9 @@ struct BufRec
 
 std::unordered_map<uint32_t, BufRec> byWin; /* WindowPeek → rec */
 std::unordered_map<uint32_t, BufRec *> byBiased; /* biased baseAddr → rec */
+std::unordered_map<uint32_t, BufRec *> byReal; /* real buffer ptr → rec
+    (PcFrameRedirect binds the wmgr pixmap to the UNBIASED buffer with
+    bounds = struct rect, so accrue sites hand us buffer-local coords) */
 std::vector<Rect> openMenus; /* dropdown screen rects, innermost last */
 
 inline uint32_t winKey(WindowPeek w) { return (uint32_t)(uintptr_t)w; }
@@ -366,6 +369,7 @@ void dropRecordNoPort(uint32_t key)
     /* Display buffers are always registered in byBiased (for PcFrameRedirect
      * / dirty notes), even when the window port stays screen-backed. */
     byBiased.erase(r.biased);
+    byReal.erase((uint32_t)(uintptr_t)r.bytes);
     free(r.bytes);
     byWin.erase(it);
 }
@@ -447,6 +451,7 @@ void Executor::pcRootlessWindowCreated(WindowPeek w)
      * on screenBits; only private-buffer windows retarget the port. */
     rec.biased = biasedAddr(rec);
     byBiased[rec.biased] = &rec;
+    byReal[(uint32_t)(uintptr_t)rec.bytes] = &rec;
     if(!rec.screenBacked)
         setPortWinBuf(w, rec.biased, rec.rowBytes);
 
@@ -486,6 +491,7 @@ void Executor::pcRootlessWindowDisposed(WindowPeek w)
     /* screenBacked: port already points at screenBits — leave it alone. */
 
     byBiased.erase(r.biased);
+    byReal.erase((uint32_t)(uintptr_t)r.bytes);
     table.wins[r.slot].hwnd = 0;
     free(r.bytes);
     byWin.erase(it);
@@ -586,6 +592,7 @@ void Executor::pcRootlessSyncFrame(WindowPeek w)
     }
 
     byBiased.erase(r.biased);
+    byReal.erase((uint32_t)(uintptr_t)r.bytes);
     free(r.bytes);
     r.bytes = nb;
     r.sx = nsx;
@@ -597,12 +604,44 @@ void Executor::pcRootlessSyncFrame(WindowPeek w)
     r.ft = r.gy - r.sy;
     r.biased = biasedAddr(r);
     byBiased[r.biased] = &r;
+    byReal[(uint32_t)(uintptr_t)r.bytes] = &r;
     if(!r.screenBacked)
         setPortWinBuf(w, r.biased, r.rowBytes);
 
     publishGeometry(r);
     markFullDirty(r);
     pcRootlessPublish();
+}
+
+void Executor::pcRootlessNudgeOnscreen(WindowPeek w)
+{
+    if(!pcRootlessEnabled() || !w)
+        return;
+    if(byWin.find(winKey(w)) == byWin.end())
+        return;
+    RgnHandle strucRgn = WINDOW_STRUCT_REGION(w);
+    if(!strucRgn || !*strucRgn)
+        return;
+    int sl = (*strucRgn)->rgnBBox.left.get();
+    int st = (*strucRgn)->rgnBBox.top.get();
+    int sr = (*strucRgn)->rgnBBox.right.get();
+    int sb = (*strucRgn)->rgnBBox.bottom.get();
+    if(sr <= sl || sb <= st)
+        return;
+
+    int dx = sl < 0 ? -sl : 0;
+    int minTop = LM(MBarHeight);
+    int dy = st < minTop ? minTop - st : 0;
+    if(!dx && !dy)
+        return;
+    /* Chrome-scale offsets only: apps that PARK windows far off-screen
+     * (the classic hide-at-(-32000) trick) keep their positions. */
+    if(dx > 32 || dy > 64)
+        return;
+
+    int gx, gy, cw, ch;
+    contentGeometry(w, &gx, &gy, &cw, &ch);
+    MoveWindow((WindowPtr)w, gx + dx, gy + dy, false);
 }
 
 void Executor::pcRootlessPublish()
@@ -693,7 +732,8 @@ bool Executor::pcRootlessIsWinBuf(uint32_t baseAddr)
 {
     if(byBiased.empty())
         return false;
-    return byBiased.find(baseAddr) != byBiased.end();
+    return byBiased.find(baseAddr) != byBiased.end()
+        || byReal.find(baseAddr) != byReal.end();
 }
 
 bool Executor::pcRootlessNoteDirty(uint32_t baseAddr, int top, int left,
@@ -701,18 +741,31 @@ bool Executor::pcRootlessNoteDirty(uint32_t baseAddr, int top, int left,
 {
     if(byBiased.empty())
         return false;
-    auto it = byBiased.find(baseAddr);
-    if(it == byBiased.end())
+    BufRec *rp = nullptr;
+    bool localCoords = false;
+    if(auto it = byBiased.find(baseAddr); it != byBiased.end())
+        rp = it->second;
+    else if(auto it2 = byReal.find(baseAddr); it2 != byReal.end())
+    {
+        /* PcFrameRedirect port: bounds = struct rect, so the accrue site's
+         * rect − bounds.topLeft is ALREADY buffer-local. */
+        rp = it2->second;
+        localCoords = true;
+    }
+    else
         return false;
-    BufRec &r = *it->second;
+    BufRec &r = *rp;
     WinSlot &s = table.wins[r.slot];
 
     /* The accrue sites compute rect − bounds.topLeft, which for every
      * biased bitmap is GLOBAL coords; translate to buffer coords. */
-    top -= r.sy;
-    bottom -= r.sy;
-    left -= r.sx;
-    right -= r.sx;
+    if(!localCoords)
+    {
+        top -= r.sy;
+        bottom -= r.sy;
+        left -= r.sx;
+        right -= r.sx;
+    }
 
     top = std::max(top, 0);
     left = std::max(left, 0);
@@ -784,12 +837,33 @@ PcFrameRedirect::PcFrameRedirect(WindowPeek w)
     savedBase_ = (void *)(uintptr_t)(uint32_t)(uintptr_t)(char *)PIXMAP_BASEADDR(pm);
     savedRowBytes_ = (*pm)->rowBytes.get();
     savedPixelSize_ = PIXMAP_PIXEL_SIZE(pm);
-    PIXMAP_BASEADDR(pm) = (Ptr)(uintptr_t)r.biased;
+    savedBounds_ = PIXMAP_BOUNDS(pm);
+    /* Bind the pixmap to the buffer's STRUCT rect: baseAddr = the real
+     * (unbiased) buffer and bounds = the struct rect in global coords.
+     * bounds-based addressing maps struct top-left → buffer[0], and the
+     * bounds/visRgn clip in StdRgn covers the whole buffer even where the
+     * struct hangs off the screen (Platinum chrome at screen edges). */
+    PIXMAP_BASEADDR(pm) = (Ptr)(uintptr_t)(uint32_t)(uintptr_t)r.bytes;
     (*pm)->rowBytes = (int16_t)(r.rowBytes | (savedRowBytes_ & 0xC000));
+    Rect structBounds;
+    structBounds.top = r.sy;
+    structBounds.left = r.sx;
+    structBounds.bottom = r.sy + r.sh;
+    structBounds.right = r.sx + r.sw;
+    PIXMAP_BOUNDS(pm) = structBounds;
     /* Under a <32bpp screen WMgrCPort is still the device depth — force 32bpp
      * descriptors so frame blits match the display buffer (same as winbufs). */
     if(savedPixelSize_ != 32)
         pixmap_set_pixel_fields(*pm, 32);
+
+    savedVis_ = NewRgn();
+    CopyRgn(PORT_VIS_REGION(wmgr_port), savedVis_);
+    RgnHandle structRectRgn = NewRgn();
+    SetRectRgn(structRectRgn, structBounds.left, structBounds.top,
+               structBounds.right, structBounds.bottom);
+    UnionRgn(PORT_VIS_REGION(wmgr_port), structRectRgn,
+             PORT_VIS_REGION(wmgr_port));
+    DisposeRgn(structRectRgn);
 
     /* Safety: never let a frame draw escape the buffer — intersect the
      * wmgr clip with the struct region (both in global coords). */
@@ -810,8 +884,14 @@ PcFrameRedirect::~PcFrameRedirect()
     PixMapHandle pm = CPORT_PIXMAP_X_NO_ASSERT((CGrafPtr)LM(WMgrCPort));
     PIXMAP_BASEADDR(pm) = (Ptr)(uintptr_t)savedBase_;
     (*pm)->rowBytes = savedRowBytes_;
+    PIXMAP_BOUNDS(pm) = savedBounds_;
     if(savedPixelSize_ && savedPixelSize_ != PIXMAP_PIXEL_SIZE(pm))
         pixmap_set_pixel_fields(*pm, savedPixelSize_);
+    if(savedVis_)
+    {
+        CopyRgn(savedVis_, PORT_VIS_REGION(wmgr_port));
+        DisposeRgn(savedVis_);
+    }
     if(savedClip_)
     {
         CopyRgn(savedClip_, PORT_CLIP_REGION(wmgr_port));
