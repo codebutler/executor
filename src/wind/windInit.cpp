@@ -389,6 +389,7 @@ ROMlib_new_window_common(WindowPeek w,
     {
         ThePortGuard guard(wmgr_port);
         WINDCALL((WindowPtr)w, wCalcRgns, 0);
+        pcRootlessNudgeOnscreen(w);
         SetClip(WINDOW_STRUCT_REGION(w));
         ClipAbove(w);
         PenPat(&qdGlobals().black);

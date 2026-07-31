@@ -155,6 +155,9 @@ void Executor::C_ShowHide(WindowPtr w, Boolean flag)
  *	   if (EmptyRgn (WINDOW_STRUCT_REGION (w)))
  */
         WINDCALL(w, wCalcRgns, 0);
+        /* pc rootless: thicker chrome (e.g. Platinum) must not hang off the
+         * screen's left/top edge on first show. */
+        pcRootlessNudgeOnscreen((WindowPeek)w);
         SetClip(WINDOW_STRUCT_REGION(w));
         ClipAbove((WindowPeek)w);
         CalcVisBehind((WindowPeek)w, PORT_CLIP_REGION(wmgr_port));

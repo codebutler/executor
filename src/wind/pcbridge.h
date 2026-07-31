@@ -53,17 +53,27 @@ void pcRootlessWindowResized(WindowPeek w);   /* after PORT_RECT updated by Size
  * (frame + content) so WDEF frame drawing lands in the buffer too. */
 void pcRootlessSyncFrame(WindowPeek w);
 
+/* Before a window's first draw (ShowHide / visible NewWindow, after the
+ * first wCalcRgns): if the WDEF's structure hangs off the screen's left or
+ * top edge — apps place content assuming System 7's 1px frame, Platinum
+ * needs 6/22px — shift the window on-screen so the chrome is visible.
+ * Uses MoveWindow's rootless fast path (offset regions + re-bias, no
+ * repaint), so it is safe mid-ShowHide. Only chrome-scale offsets are
+ * nudged; windows parked far off-screen on purpose are left alone. */
+void pcRootlessNudgeOnscreen(WindowPeek w);
+
 /* Rewrite the export table from LM(WindowList) (seqlock'd; cheap no-op when
  * disabled). Called from ROMlib_rootless_update plus title/hilite changes. */
 void pcRootlessPublish();
 
-/* RAII: while alive, WMgrCPort's pixmap points at `w`'s backing buffer and
- * its clip is intersected with w's struct region — so frame drawing (WDEF
- * wDraw/wDrawGIcon, content erases) lands in the window's buffer instead
- * of the invisible screen. Applies to private-buffer AND screen-backed
- * windows (screen-backed content stays on screenBits; only the frame is
- * redirected). Inert when disabled, w is null/unregistered, or thePort
- * isn't the window-manager port. Nests safely. */
+/* RAII: while alive, WMgrCPort's pixmap is REBOUND to `w`'s backing buffer:
+ * baseAddr = the real buffer, bounds = the struct rect (so QuickDraw's
+ * bounds/visRgn clipping covers the whole buffer even where the struct
+ * hangs off the screen), visRgn extended over the struct, clip intersected
+ * with the struct region. Frame drawing (WDEF wDraw/wDrawGIcon, content
+ * erases) lands in the window's buffer instead of the invisible screen.
+ * Applies to private-buffer AND screen-backed windows. Inert when disabled,
+ * w is null/unregistered, or thePort isn't the window-manager port. */
 class PcFrameRedirect
 {
 public:
@@ -77,7 +87,9 @@ private:
     void *savedBase_ = nullptr;
     int16_t savedRowBytes_ = 0;
     int16_t savedPixelSize_ = 0;
+    Rect savedBounds_ = { 0, 0, 0, 0 };
     RgnHandle savedClip_ = nullptr;
+    RgnHandle savedVis_ = nullptr;
 };
 
 /* True if this baseAddr (as stored in a BitMap/PixMap) is a registered

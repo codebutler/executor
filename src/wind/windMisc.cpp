@@ -564,6 +564,19 @@ int32_t Executor::ROMlib_windcall(WindowPtr wind, int16_t mess, int32_t param)
     /* pc rootless: WDEF frame drawing (wDraw/wDrawGIcon) lands in the
      * window's private buffer, not the invisible screen. wGrow is
      * deliberately excluded — its XOR outline spans the desktop. */
+    if(mess == wDraw || mess == wDrawGIcon)
+    {
+        /* Refresh structure → buffer BEFORE redirect binds it.
+         * Platinum expands strucRgn beyond the content-sized buffer from
+         * NewWindow; painting those outer columns while the buffer is still
+         * content-sized clips the left/top black+white edges. Resize already
+         * fixed this via wCalcRgns → SyncFrame; do the same on every draw. */
+        Rect calc_save = wind->portBits.bounds;
+        wind->portBits.bounds = PORT_BOUNDS(wind);
+        wp(var(wind), wind, wCalcRgns, 0);
+        wind->portBits.bounds = calc_save;
+        pcRootlessSyncFrame((WindowPeek)wind);
+    }
     {
         PcFrameRedirect redirect(
             (mess == wDraw || mess == wDrawGIcon) ? (WindowPeek)wind : nullptr);
