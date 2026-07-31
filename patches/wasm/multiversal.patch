@@ -1,0 +1,12 @@
+diff --git a/.clang-format b/.clang-format
+index 4ff32e8..bab86ac 100644
+--- a/.clang-format
++++ b/.clang-format
+@@ -88,7 +88,6 @@ PenaltyReturnTypeOnItsOwnLine: 60
+ SpaceAfterCStyleCast: false
+ SpaceBeforeAssignmentOperators: true
+ SpaceInEmptyParentheses: false
+-SpaceBeforeParens: Never
+ SpacesBeforeTrailingComments: 1
+ SpacesInAngles:  false
+ SpacesInContainerLiterals: true
