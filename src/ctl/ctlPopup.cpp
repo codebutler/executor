@@ -14,6 +14,8 @@
 
 #include <ctl/ctl.h>
 #include <menu/menu.h>
+#include <rsys/appearance.h>
+#include <rsys/appearance_mgr.h>
 
 #include <algorithm>
 
@@ -446,6 +448,11 @@ int32_t Executor::C_cdef1008(int16_t var, ControlHandle ctl, int16_t message,
     switch(message)
     {
         case drawCntl:
+            if(ROMlib_get_appearance() == appearance_platinum)
+            {
+                if(C_cdef_platinum_popup(var, ctl, message, param) != -1)
+                    break;
+            }
             draw(ctl, draw_state, window_font, window_size, window_font_p,
                  false, false, nullptr, nullptr);
             break;
@@ -515,6 +522,9 @@ int32_t Executor::C_cdef1008(int16_t var, ControlHandle ctl, int16_t message,
 
             if(value)
                 CTL_VALUE(ctl) = value;
+            if(ROMlib_get_appearance() == appearance_platinum
+               && C_cdef_platinum_popup(var, ctl, drawCntl, 0) != -1)
+                break;
             draw(ctl, draw_state, window_font, window_size, window_font_p,
                  false, false, nullptr, nullptr);
 

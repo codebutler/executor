@@ -12,6 +12,8 @@
 
 #include <quickdraw/cquick.h>
 #include <ctl/ctl.h>
+#include <rsys/appearance.h>
+#include <rsys/appearance_mgr.h>
 
 #include <quickdraw/image.h>
 #include <wind/wind.h>
@@ -687,6 +689,12 @@ restore(const save_t *sp)
 LONGINT Executor::C_cdef16(INTEGER var, ControlHandle c, INTEGER mess,
                            LONGINT param) /* IMI-328 */
 {
+    if(ROMlib_get_appearance() == appearance_platinum)
+    {
+        LONGINT pr = C_cdef_platinum_scroll(var, c, mess, param);
+        if(pr != -1)
+            return pr;
+    }
     Point p;
     PenState ps;
     Rect r, *rp, tempr;

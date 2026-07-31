@@ -11,6 +11,8 @@
 #include <quickdraw/cquick.h>
 #include <wind/wind.h>
 #include <ctl/ctl.h>
+#include <rsys/appearance.h>
+#include <rsys/appearance_mgr.h>
 
 #include <quickdraw/image.h>
 
@@ -991,6 +993,12 @@ struct draw_save
 LONGINT Executor::C_wdef0(INTEGER varcode, WindowPtr window, INTEGER message,
                           LONGINT parm)
 {
+    if(ROMlib_get_appearance() == appearance_platinum)
+    {
+        LONGINT pr = C_wdef_platinum(varcode, window, message, parm);
+        if(pr != -1)
+            return pr;
+    }
     WindowPeek w = (WindowPeek)window;
     draw_state_t draw_state;
     int zoom_bit;

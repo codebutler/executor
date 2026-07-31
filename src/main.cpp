@@ -85,6 +85,7 @@ using namespace Executor;
 // pc MacTCP `.IPP` networking veneer (#711, wind/mactcp_bridge.cpp):
 // register the driver + the 'dnrp' DNR resource once at boot.
 extern "C" void pc_mactcp_init(void);
+extern "C" void pc_platinum_init(void);
 using namespace std;
 
 namespace po = boost::program_options;
@@ -310,7 +311,7 @@ static std::vector<std::string> parseCommandLine(int& argc, char **argv)
         ("appearance", po::value<std::string>()->notifier([&](const std::string& s) {
             if(!ROMlib_parse_appearance(s.c_str()))
                 throw SilentBadArgException();
-        }), "(mac or windows) specify the appearance of windows and "
+        }), "(mac, windows, or platinum) specify the appearance of windows and "
                     "menus.  For example \"executor -appearance windows\" will make each "
                     "window have a blue title bar")
         ("scancodes", po::bool_switch(&ROMlib_use_scan_codes), 
@@ -458,7 +459,8 @@ int main(int argc, char **argv)
             // resource file, so GetIndResource('dnrp',1) finds our resource,
             // and RegisterDriver runs before InitAppFiles launches any app.
             pc_mactcp_init();
-            
+            pc_platinum_init();
+
             ROMlib_set_system_version(system_version);
 
             {
