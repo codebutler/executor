@@ -20,6 +20,7 @@
 #include <mman/mman.h>
 #include <commandline/flags.h>
 #include <mman/tempalloc.h>
+#include <wind/pcbridge.h>
 
 using namespace Executor;
 
@@ -112,6 +113,23 @@ void Executor::canonicalize_bogo_map(const BitMap *bogo_map, PixMap **canonical_
                                        | PIXMAP_DEFAULT_ROW_BYTES);
                 canonical->pmTable = PIXMAP_TABLE(gd_pmap);
 
+                info->cleanup_type = Executor::cleanup_info::cleanup_none;
+            }
+            else if(pcRootlessIsWinBuf(
+                        (uint32_t)(uintptr_t)(char *)canonical->baseAddr))
+            {
+                /* Private rootless winbufs are always 32bpp XRGB (see
+                 * wind/pcbridge.h), even when the guest port is a classic
+                 * B&W GrafPort whose portBits look like a 1-bit BitMap.
+                 * Without this, CopyBits — used by StdText glyph blits and
+                 * by apps that SetPortBits to a 1-bit offscreen shadow then
+                 * reveal with CopyBits (e.g. Wallops) — treats the
+                 * destination as 1-bit and content never lands in the
+                 * host-visible buffer. Same depth override as qStdRgn. */
+                pixmap_set_pixel_fields(canonical, 32);
+                canonical->rowBytes = (bogo_map->rowBytes
+                                       | PIXMAP_DEFAULT_ROW_BYTES);
+                canonical->pmTable = PIXMAP_TABLE(gd_pmap);
                 info->cleanup_type = Executor::cleanup_info::cleanup_none;
             }
             else
