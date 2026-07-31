@@ -244,6 +244,20 @@ void Executor::C_ModalDialog(ModalFilterUPP fp, GUEST<INTEGER> *item) /* IMI-415
                 break;
             }
             else if(mousedown_p
+                    && mousedown_where == inDrag
+                    && temp_wp == (WindowPtr)dp)
+            {
+                /* ALLOW_MOVABLE_MODAL: a titlebar hit on the dialog itself
+                 * drags it (System 7.5+ ModalDialog handles movable modals;
+                 * previously this fell through to Beep). */
+                Rect bounds;
+                bounds.top = LM(MBarHeight) + 4;
+                bounds.left = GD_BOUNDS(LM(TheGDevice)).left + 4;
+                bounds.bottom = GD_BOUNDS(LM(TheGDevice)).bottom - 4;
+                bounds.right = GD_BOUNDS(LM(TheGDevice)).right - 4;
+                DragWindow(temp_wp, whereunswapped, &bounds);
+            }
+            else if(mousedown_p
                     && mousedown_where != inMenuBar
                     && !(mousedown_where == inContent
                          && temp_wp == (WindowPtr)dp))

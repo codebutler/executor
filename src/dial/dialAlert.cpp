@@ -94,22 +94,23 @@ INTEGER Executor::C_Alert(INTEGER id, ModalFilterUPP fp) /* IMI-418 */
                                  : noAutoCenter));
     }
 
-    color_p = ((alert_ctab_res_h
-                && CTAB_SIZE((CTabHandle)alert_ctab_res_h) != -1)
-               || item_ctab_res_h);
-    if(color_p)
-        dp = ((DialogPeek)
-                  NewColorDialog(nullptr, &adjusted_rect,
-                             (StringPtr) "", false, dBoxProc,
-                             (WindowPtr)-1, false, 0L, h));
-    else
-        dp = ((DialogPeek)
-                  NewDialog(nullptr, &adjusted_rect,
-                            (StringPtr) "", false, dBoxProc,
-                            (WindowPtr)-1, false, 0L, h));
+    /* Always create a color alert. A B&W GrafPort on a 32bpp rootless
+     * window buffer leaves FrameRect/FrameRoundRect (the alert's default-
+     * button ring and any framed items) and even text invisible — the
+     * whole alert renders blank. This mirrors the same fix in
+     * ROMlib_new_dialog_common / GetNewDialog (dialCreate.cpp). A missing
+     * actb is fine: SetWinColor is only called when one is present. */
+    color_p = true;
+    bool have_alert_ctab = (alert_ctab_res_h
+                            && CTAB_SIZE((CTabHandle)alert_ctab_res_h) != -1);
+    dp = ((DialogPeek)
+              NewColorDialog(nullptr, &adjusted_rect,
+                         (StringPtr) "", false, dBoxProc,
+                         (WindowPtr)-1, false, 0L, h));
 
     if(color_p)
     {
+        if(have_alert_ctab)
         {
             ThePortGuard portGuard;
             SetWinColor(DIALOG_WINDOW(dp),
