@@ -22,7 +22,7 @@
 
 #include <quickdraw/cquick.h>
 #include <wind/wind.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 #include <menu/menu.h>
 #include <res/resource.h>
 #include <error/system_error.h>
@@ -372,9 +372,9 @@ ROMlib_new_window_common(WindowPeek w,
     OffsetRect(&PORT_BOUNDS(w), -bounds->left, -bounds->top);
     PORT_RECT(w) = *bounds;
     OffsetRect(&PORT_RECT(w), -bounds->left, -bounds->top);
-    /* pc rootless: give the window a private backing buffer (biased
+    /* Yore rootless: give the window a private backing buffer (biased
      * baseAddr keeps portBits.bounds semantics intact). */
-    pcRootlessWindowCreated(w);
+    yoreRootlessWindowCreated(w);
     {
         HLockGuard guard(WINDOW_TITLE(w));
         WINDOW_TITLE_WIDTH(w) = StringWidth(*WINDOW_TITLE(w));
@@ -389,15 +389,15 @@ ROMlib_new_window_common(WindowPeek w,
     {
         ThePortGuard guard(wmgr_port);
         WINDCALL((WindowPtr)w, wCalcRgns, 0);
-        pcRootlessNudgeOnscreen(w);
+        yoreRootlessNudgeOnscreen(w);
         SetClip(WINDOW_STRUCT_REGION(w));
         ClipAbove(w);
         PenPat(&qdGlobals().black);
         WINDCALL((WindowPtr)w, wDraw, 0);
         CalcVis(w);
         {
-            /* pc rootless: the content erase lands in the window buffer */
-            PcFrameRedirect redirect(w);
+            /* Yore rootless: the content erase lands in the window buffer */
+            YoreFrameRedirect redirect(w);
             EraseRgn(WINDOW_CONT_REGION(w));
         }
         CopyRgn(WINDOW_CONT_REGION(w), WINDOW_UPDATE_REGION(w));
@@ -643,8 +643,8 @@ void Executor::C_CloseWindow(WindowPtr w)
 
     if(WINDOW_PIC(w))
         KillPicture(WINDOW_PIC(w));
-    /* pc rootless: release the backing buffer, repoint bits at the screen */
-    pcRootlessWindowDisposed((WindowPeek)w);
+    /* Yore rootless: release the backing buffer, repoint bits at the screen */
+    yoreRootlessWindowDisposed((WindowPeek)w);
     ClosePort((GrafPtr)w);
     SetPort(savgp);
     if(LM(CurActivate) == w)

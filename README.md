@@ -14,7 +14,7 @@ Appearance Manager).
   (`createExecutorModule`) for browser embedding (`PROXY_TO_PTHREAD`,
   MODULARIZE, growing memory, IDBFS).
 - **Rootless windows** — per-window backing buffers + host compositor bridge
-  (`pcbridge`) so Mac windows can mount as separate host windows.
+  (`yorebridge`) so Mac windows can mount as separate host windows.
 - **MacTCP `.IPP` veneer** — TCP/UDP/DNR for classic MacTCP clients over a
   host-socket ring.
 - **Scrap ↔ host clipboard** bridge.
@@ -254,7 +254,7 @@ libraries, and some which are maintained together with Executor.
 - `util/` - a collection of scripts and helper programs, all obsolete
 - `patches/wasm/` - wasm submodule glue (this fork; see above)
 - `src/platinum/` - native Platinum Appearance Manager (this fork)
-- `src/wind/pcbridge.*` / `mactcp_bridge.cpp` - browser-host bridges (this fork)
+- `src/wind/yorebridge.*` / `mactcp_bridge.cpp` - browser-host bridges (this fork)
 
 ### The "Multiversal Interfaces"
 

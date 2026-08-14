@@ -1,7 +1,7 @@
 #include <vdriver/vdriver.h>
 #include <error/error.h>
 #include <quickdraw/region.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 
 #include <thread>
 #include <condition_variable>
@@ -174,11 +174,11 @@ void VideoDriver::setRootlessRegion(RgnHandle rgn)
 
 void VideoDriver::updateScreen(int top, int left, int bottom, int right)
 {
-    /* pc rootless: screen damage lands in screen-backed windows' content.
+    /* Yore rootless: screen damage lands in screen-backed windows' content.
      * Both funnels pass through here — QuickDraw draws (dirty_rect_accrue)
      * AND direct screen-memory writes caught by refresh mode
      * (flush_shadow_screen); both run on the emulator thread. */
-    pcRootlessScreenDamaged(top, left, bottom, right);
+    yoreRootlessScreenDamaged(top, left, bottom, right);
 
     std::lock_guard lk(mutex_);
     dirtyRects_.add(top, left, bottom, right);

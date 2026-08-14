@@ -13,13 +13,13 @@
 // out of pc's own IP (the gateway, 10.0.2.1), exactly like Wine's winsock and a
 // pure-JS app. No per-runtime DHCP lease or virtual NIC.
 //
-// The model (recap, issue #711): apps in Executor are pc apps, not a guest host.
+// The model (recap, issue #711): apps in Executor are Yore apps, not a guest host.
 // LAN-local destinations reach other guests over the bridge; everything else
 // egresses via pc's single shared Wisp uplink. "What's my IP" (ipctlGetAddr)
 // answers with pc's gateway address.
 //
 // Structure:
-//   • a futex ring (`_pc_mactcp_ring()`), SAME layout + transport as the /mac
+//   • a futex ring (`_yore_mactcp_ring()`), SAME layout + transport as the /mac
 //     sync-VFS ring (pc_vfs_bridge.cpp), but carrying the net SOCK_* / RESOLVE /
 //     LOCAL_ADDR ops (js/kernel/wasi/futex.ts). A SEPARATE ring so a blocking
 //     TCPRcv parked on the net futex never stalls a /mac file call.
@@ -79,8 +79,8 @@ const int DATA_OFFSET = HEADER_SLOTS * 4;
 // Net payloads are small (one TCP segment at a time); 64 KiB is ample and the
 // host servicer maps exactly DATA_OFFSET + this. MUST match the byteLength the
 // host passes (js/apps/executor/executor-window.ts).
-const int PC_MACTCP_DATA_BYTES = 64 * 1024;
-const int RING_BYTES = DATA_OFFSET + PC_MACTCP_DATA_BYTES;
+const int YORE_MACTCP_DATA_BYTES = 64 * 1024;
+const int RING_BYTES = DATA_OFFSET + YORE_MACTCP_DATA_BYTES;
 
 enum { TURN_WORKER = 0, TURN_SERVICER = 1 };
 
@@ -110,7 +110,7 @@ enum {
 };
 
 // The shared ring, in the wasm data segment (shared under -pthread). The host
-// maps it read/write at _pc_mactcp_ring(). 16-aligned so the host's Int32Array
+// maps it read/write at _yore_mactcp_ring(). 16-aligned so the host's Int32Array
 // view is 4-aligned. The __atomic_* builtins carry the ordering.
 alignas(16) int32_t g_ring[RING_BYTES / 4];
 
@@ -120,20 +120,20 @@ inline unsigned char* rdata() {
 }
 } // namespace
 
-extern "C" EMSCRIPTEN_KEEPALIVE uintptr_t pc_mactcp_ring(void) {
+extern "C" EMSCRIPTEN_KEEPALIVE uintptr_t yore_mactcp_ring(void) {
   return reinterpret_cast<uintptr_t>(g_ring);
 }
 
 namespace
 {
 // ── debug logging (instrument-first, per CLAUDE.md) ──────────────────────────
-// PC_MACTCP_DEBUG=1 → every MacTCP call the driver services narrates to stderr
+// YORE_MACTCP_DEBUG=1 → every MacTCP call the driver services narrates to stderr
 // with an [mactcp] prefix (localStorage["cb.executor.netDebug"]="1", wired in
 // executor-window.ts). Off by default.
 int dbg_on() {
   static int v = -1;
   if (v < 0) {
-    const char* e = getenv("PC_MACTCP_DEBUG");
+    const char* e = getenv("YORE_MACTCP_DEBUG");
     v = (e && e[0] == '1') ? 1 : 0;
   }
   return v;
@@ -156,7 +156,7 @@ int net_round(int op, int fd, int arg,
     if (!warned) { warned = 1; fprintf(stderr, "[mactcp] WARN op=%d on MAIN thread — failing\n", op); fflush(stderr); }
     return -NET_EINVAL;
   }
-  if (data_in_len > PC_MACTCP_DATA_BYTES) return -NET_EINVAL;
+  if (data_in_len > YORE_MACTCP_DATA_BYTES) return -NET_EINVAL;
   unsigned char* d = rdata();
   if (data_in && data_in_len) memcpy(d, data_in, data_in_len);
 
@@ -442,7 +442,7 @@ bool tryCompletePending(Pending& p) {
   if (mask == 0) return false; // not readable yet, not closed
   if (mask & POLL_READABLE) {
     int want = p.rcvBuffLen;
-    if (want > PC_MACTCP_DATA_BYTES) want = PC_MACTCP_DATA_BYTES;
+    if (want > YORE_MACTCP_DATA_BYTES) want = YORE_MACTCP_DATA_BYTES;
     int res_len = 0;
     int n = net_round(OP_SOCK_RECV, p.fd, want, nullptr, 0, /*nonblock*/ 1,
                       guestPtr(p.rcvBuff), p.rcvBuffLen, &res_len);
@@ -599,7 +599,7 @@ int16_t doActiveOpen(void* pb, Stream* s, int fd) {
 int16_t doSend(void* pb, int fd) {
   uint32_t wdsAddr = rdL(pb, off_send_wdsPtr);
   if (!wdsAddr) return meParamErr;
-  static unsigned char buf[PC_MACTCP_DATA_BYTES];
+  static unsigned char buf[YORE_MACTCP_DATA_BYTES];
   int total = 0;
   void* wds = guestPtr(wdsAddr);
   for (int e = 0;; e++) {
@@ -640,7 +640,7 @@ int16_t doRcvSync(void* pb, int fd) {
     wrW(pb, off_recv_rcvBuffLen, want);
   }
   int cap = want;
-  if (cap > PC_MACTCP_DATA_BYTES) cap = PC_MACTCP_DATA_BYTES;
+  if (cap > YORE_MACTCP_DATA_BYTES) cap = YORE_MACTCP_DATA_BYTES;
   int res_len = 0;
   int n = net_round(OP_SOCK_RECV, fd, cap, nullptr, 0, /*nonblock*/ 0,
                     guestPtr(rcvBuff), want, &res_len);
@@ -695,7 +695,7 @@ int16_t doUdpWrite(void* pb, int fd) {
   ipToDotted(host, dotted);
   if (net_round(OP_SOCK_CONNECT, fd, port, dotted, (int)strlen(dotted), 0, nullptr, 0, nullptr) != 0)
     return meOpenFailed;
-  static unsigned char buf[PC_MACTCP_DATA_BYTES];
+  static unsigned char buf[YORE_MACTCP_DATA_BYTES];
   int total = 0;
   void* wds = guestPtr(wdsAddr);
   for (int e = 0;; e++) {
@@ -719,7 +719,7 @@ int16_t doUdpRead(void* pb, int fd) {
   uint16_t want = rdW(pb, off_udpr_rcvBuffLen);
   uint32_t rcvBuff = rdL(pb, off_udpr_rcvBuff);
   int cap = want;
-  if (cap > PC_MACTCP_DATA_BYTES) cap = PC_MACTCP_DATA_BYTES;
+  if (cap > YORE_MACTCP_DATA_BYTES) cap = YORE_MACTCP_DATA_BYTES;
   int res_len = 0;
   int n = net_round(OP_SOCK_RECV, fd, cap, nullptr, 0, 0, guestPtr(rcvBuff), want, &res_len);
   if (n <= 0) { wrW(pb, off_udpr_rcvBuffLen, 0); return meConnectionClosing; }
@@ -1052,7 +1052,7 @@ void installDnrResource() {
 // ── in-engine self-test (env-gated) ──────────────────────────────────────────
 // There is no classic MacTCP application in the sandbox to drive, and the WAN
 // path needs a Wisp relay the sandbox can't reach — but the LAN path is fully
-// exercisable in-process. When PC_MACTCP_SELFTEST_HOST is set (via
+// exercisable in-process. When YORE_MACTCP_SELFTEST_HOST is set (via
 // localStorage["cb.executor.netSelfTest"], see executor-window.ts), this drives
 // the WHOLE driver the way a guest app would — OpenDriver(".IPP") + PBControl on
 // a real TCPiopb — through the real ring + servicer + vnet lwIP to a gateway
@@ -1061,7 +1061,7 @@ void installDnrResource() {
 // param-block offset marshaling, the ring protocol, and the sync TCPRcv
 // end-to-end — VERIFIED working (#711): the guest connects and sends the exact
 // bytes, confirmed by a gateway echo service. It NEVER runs in production
-// (PC_MACTCP_SELFTEST_HOST is only set by a deliberate
+// (YORE_MACTCP_SELFTEST_HOST is only set by a deliberate
 // localStorage["cb.executor.netSelfTest"] — the test/deploy harness). Runs on
 // the emulator pthread at boot (blocking futex calls are legal there); it bails
 // after a failed connect so it can't park boot, but POINT IT AT A REACHABLE ECHO
@@ -1071,11 +1071,11 @@ void installDnrResource() {
 namespace
 {
 void mactcp_selftest() {
-  const char* host = getenv("PC_MACTCP_SELFTEST_HOST");
+  const char* host = getenv("YORE_MACTCP_SELFTEST_HOST");
   if (!host || !host[0]) return;
   int port = 7;
-  if (const char* ps = getenv("PC_MACTCP_SELFTEST_PORT")) port = atoi(ps);
-  const char* msg = getenv("PC_MACTCP_SELFTEST_MSG");
+  if (const char* ps = getenv("YORE_MACTCP_SELFTEST_PORT")) port = atoi(ps);
+  const char* msg = getenv("YORE_MACTCP_SELFTEST_MSG");
   if (!msg || !msg[0]) msg = "HELLO MACTCP";
   int msglen = (int)strlen(msg);
   fprintf(stderr, "[mactcp] SELFTEST start %s:%d msg='%s'\n", host, port, msg);
@@ -1183,7 +1183,7 @@ void mactcp_selftest() {
 // current res file, so AddResource lands where GetIndResource finds it). The
 // driver's refnum -24 (devicen 23) is MacTCP-authentic and unused (serial owns
 // -6..-9); it must be < NDEVICES.
-extern "C" void pc_mactcp_init(void) {
+extern "C" void yore_mactcp_init(void) {
   static bool done = false;
   if (done) return;
   done = true;
@@ -1192,5 +1192,5 @@ extern "C" void pc_mactcp_init(void) {
     (StringPtr) "\04.IPP", -24,
   });
   installDnrResource();
-  mactcp_selftest(); // no-op unless PC_MACTCP_SELFTEST_HOST is set (test harness)
+  mactcp_selftest(); // no-op unless YORE_MACTCP_SELFTEST_HOST is set (test harness)
 }

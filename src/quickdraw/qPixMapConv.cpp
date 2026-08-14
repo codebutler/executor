@@ -16,7 +16,7 @@
 #include <quickdraw/picture.h>
 #include <mman/mman.h>
 #include <vdriver/vdriver.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 #include <algorithm>
 
 using namespace Executor;
@@ -197,11 +197,11 @@ void Executor::ROMlib_fg_bk(uint32_t *fg_pixel_out, uint32_t *bk_pixel_out,
             bk_rgb = CPORT_RGB_BK_COLOR(current_port);
             bk_pixel = pixel_from_rgb(&bk_rgb, rgb_spec);
         }
-        else if(pcRootlessEnabled() && rgb_spec
+        else if(yoreRootlessEnabled() && rgb_spec
                 && rgb_spec->bpp
                     != PIXMAP_PIXEL_SIZE(GD_PMAP(LM(TheGDevice))))
         {
-            /* pc rootless: the port's fg/bk pixel values are color INDEXES
+            /* Yore rootless: the port's fg/bk pixel values are color INDEXES
              * in TheGDevice's depth (Color2Index). When the target is a
              * rootless 32bpp winbuf under a shallower screen, a raw
              * pass-through misreads the index as a deep pixel (1-bit white

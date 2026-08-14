@@ -14,7 +14,7 @@
 
 #include <quickdraw/cquick.h>
 #include <wind/wind.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 #include <rsys/hook.h>
 #include <MemoryMgr.h>
 
@@ -230,9 +230,9 @@ void Executor::C_ClipAbove(WindowPeek w)
 {
     WindowPeek wp;
 
-    /* pc rootless: nothing occludes anything (private buffers), and a
+    /* Yore rootless: nothing occludes anything (private buffers), and a
      * window may live outside GrayRgn (the host desktop is the screen). */
-    if(pcRootlessEnabled())
+    if(yoreRootlessEnabled())
         return;
 
     SectRgn(PORT_CLIP_REGION(wmgr_port), LM(GrayRgn),
@@ -315,8 +315,8 @@ void Executor::C_PaintOne(WindowPeek w, RgnHandle clobbered)
 
                     RGBBackColor(&window_colors[wContentColor]);
                     {
-                        /* pc rootless: erase into the window buffer */
-                        PcFrameRedirect redirect(w);
+                        /* Yore rootless: erase into the window buffer */
+                        YoreFrameRedirect redirect(w);
                         EraseRgn(rh);
                     }
 
@@ -382,9 +382,9 @@ void Executor::C_CalcVis(WindowPeek w)
 
     if(w && WINDOW_VISIBLE(w))
     {
-        if(pcRootlessEnabled())
+        if(yoreRootlessEnabled())
         {
-            /* pc rootless: each window owns its full content pixels in a
+            /* Yore rootless: each window owns its full content pixels in a
              * private buffer — nothing occludes anything, and the host
              * desktop (not GrayRgn) decides what's on screen. */
             CopyRgn(WINDOW_CONT_REGION(w), PORT_VIS_REGION(w));
@@ -561,7 +561,7 @@ int32_t Executor::ROMlib_windcall(WindowPtr wind, int16_t mess, int32_t param)
 
     ROMlib_hook(wind_wdefnumber);
     HLockGuard guard(defproc);
-    /* pc rootless: WDEF frame drawing (wDraw/wDrawGIcon) lands in the
+    /* Yore rootless: WDEF frame drawing (wDraw/wDrawGIcon) lands in the
      * window's private buffer, not the invisible screen. wGrow is
      * deliberately excluded — its XOR outline spans the desktop. */
     if(mess == wDraw || mess == wDrawGIcon)
@@ -575,15 +575,15 @@ int32_t Executor::ROMlib_windcall(WindowPtr wind, int16_t mess, int32_t param)
         wind->portBits.bounds = PORT_BOUNDS(wind);
         wp(var(wind), wind, wCalcRgns, 0);
         wind->portBits.bounds = calc_save;
-        pcRootlessSyncFrame((WindowPeek)wind);
+        yoreRootlessSyncFrame((WindowPeek)wind);
     }
     {
-        PcFrameRedirect redirect(
+        YoreFrameRedirect redirect(
             (mess == wDraw || mess == wDrawGIcon) ? (WindowPeek)wind : nullptr);
         retval = wp(var(wind), wind, mess, param);
     }
     if(mess == wCalcRgns)
-        pcRootlessSyncFrame((WindowPeek)wind);
+        yoreRootlessSyncFrame((WindowPeek)wind);
 
 #if defined EVIL_ILLUSTRATOR_7_HACK
     ROMlib_evil_illustrator_7_hack = save_hack;

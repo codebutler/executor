@@ -339,7 +339,7 @@ set(wind_sources
     wind/windColor.cpp wind/windDisplay.cpp wind/windDocdef.cpp
     wind/windInit.cpp wind/windMisc.cpp wind/windMouse.cpp wind/windSize.cpp
     wind/windUpdate.cpp wind/windRootless.cpp
-    wind/pcbridge.h wind/pcbridge.cpp
+    wind/yorebridge.h wind/yorebridge.cpp
     wind/mactcp_bridge.cpp)
 source_group(Windows FILES ${wind_sources})
 
@@ -667,11 +667,11 @@ foreach(FRONT_END ${BUILT_FRONT_ENDS})
             -sEXPORT_NAME=createExecutorModule
             -sENVIRONMENT=web,worker,node
             -sEXPORTED_RUNTIME_METHODS=FS,callMain,PThread,ENV,HEAPU8,HEAPU32
-            # pc rootless-windows bridge (wind/pcbridge.cpp): snapshot table
+            # Yore rootless-windows bridge (wind/yorebridge.cpp): snapshot table
             # + input ring, polled from the embedding page. _malloc/_free back
             # the clipboard bridge's getScrap buffer (issue #659 — the JS side
             # of MAIN_THREAD_EM_ASM allocates it, the C++ side frees it).
-            -sEXPORTED_FUNCTIONS=_main,_pc_rootless_table,_pc_rootless_ring,_pc_mactcp_ring,_malloc,_free
+            -sEXPORTED_FUNCTIONS=_main,_yore_rootless_table,_yore_rootless_ring,_yore_mactcp_ring,_malloc,_free
             -sFORCE_FILESYSTEM=1
             -sFS_DEBUG=1
             -lidbfs.js

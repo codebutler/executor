@@ -22,7 +22,7 @@
 #include <quickdraw/xdblt.h>
 #include <quickdraw/srcblt.h>
 #include <vdriver/dirtyrect.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 
 using namespace Executor;
 
@@ -202,8 +202,8 @@ void Executor::ROMlib_blt_rgn_update_dirty_rect(RgnHandle rh,
         int dst_top = dst_pm->bounds.top;
         int dst_left = dst_pm->bounds.left;
 
-        /* pc rootless: window-buffer damage goes to the per-window rect */
-        if(!pcRootlessNoteDirty((uint32_t)(uintptr_t)(char *)dst_pm->baseAddr,
+        /* Yore rootless: window-buffer damage goes to the per-window rect */
+        if(!yoreRootlessNoteDirty((uint32_t)(uintptr_t)(char *)dst_pm->baseAddr,
                                 r->top - dst_top, r->left - dst_left,
                                 r->bottom - dst_top, r->right - dst_left))
             dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
@@ -270,10 +270,10 @@ const uint32_t Executor::ROMlib_pixel_size_mask[6] = {
         else if(active_screen_addr_p(&the_port->portBits))                    \
         {                                                                     \
             PixMap copy_of_screen;                                            \
-            /* pc rootless: a private winbuf under a <32bpp screen is 32bpp  \
+            /* Yore rootless: a private winbuf under a <32bpp screen is 32bpp  \
              * XRGB, not the MainDevice's 1-bit format — describe it as such \
              * instead of copying the screen PixMap. */                       \
-            if(pcRootlessIsWinBuf(                                            \
+            if(yoreRootlessIsWinBuf(                                            \
                    (uint32_t)(uintptr_t)(char *)the_port->portBits.baseAddr)  \
                && PIXMAP_PIXEL_SIZE(GD_PMAP(LM(TheGDevice))) != 32)           \
             {                                                                 \
@@ -324,7 +324,7 @@ blt_pattern_to_bitmap_simple_mode(RgnHandle rh, INTEGER mode,
     if(screen_dst_p)
     {
         dst_pixmap = **main_gd_pmap;
-        /* pc rootless: "screen-like" covers private window buffers too —
+        /* Yore rootless: "screen-like" covers private window buffers too —
          * keep the DESTINATION's addr/rowBytes (identical to the screen's
          * for the real screen), only the format comes from the device. */
         dst_pixmap.baseAddr = dst->baseAddr;
@@ -332,7 +332,7 @@ blt_pattern_to_bitmap_simple_mode(RgnHandle rh, INTEGER mode,
         /* Private winbufs are always 32bpp XRGB. Under a <32bpp screen the
          * MainDevice format would be 1-bit — force 32bpp so QD writes the
          * right pixel size into the buffer. */
-        if(pcRootlessIsWinBuf((uint32_t)(uintptr_t)(char *)dst->baseAddr)
+        if(yoreRootlessIsWinBuf((uint32_t)(uintptr_t)(char *)dst->baseAddr)
            && bpp != 32)
         {
             pixmap_set_pixel_fields(&dst_pixmap, 32);
@@ -369,7 +369,7 @@ blt_pattern_to_bitmap_simple_mode(RgnHandle rh, INTEGER mode,
     if(screen_dst_p)
     {
         const Rect *r = &RGN_BBOX(rh);
-        if(!pcRootlessNoteDirty((uint32_t)(uintptr_t)(char *)dst_pixmap.baseAddr,
+        if(!yoreRootlessNoteDirty((uint32_t)(uintptr_t)(char *)dst_pixmap.baseAddr,
                                 r->top - dst_top, r->left - dst_left,
                                 r->bottom - dst_top, r->right - dst_left))
             dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
@@ -404,7 +404,7 @@ blt_pixpat_to_pixmap_simple_mode(RgnHandle rh, INTEGER mode,
             uint32_t bk_color;
 
             dst_rgb_spec = pixmap_rgb_spec(dst);
-            /* pc rootless: route through ROMlib_fg_bk (same conversion for
+            /* Yore rootless: route through ROMlib_fg_bk (same conversion for
              * a CGrafPort) so the winbuf depth-mismatch handling applies —
              * a raw canonical_from_bogo_color pass-through misreads the
              * port's device-depth color indexes as deep pixels. */
@@ -478,7 +478,7 @@ blt_pixpat_to_pixmap_simple_mode(RgnHandle rh, INTEGER mode,
     if(screen_dst_p)
     {
         const Rect *r = &RGN_BBOX(rh);
-        if(!pcRootlessNoteDirty(dst_base_for_dirty,
+        if(!yoreRootlessNoteDirty(dst_base_for_dirty,
                                 r->top - dst_top, r->left - dst_left,
                                 r->bottom - dst_top, r->right - dst_left))
             dirty_rect_accrue(r->top - dst_top, r->left - dst_left,
@@ -641,7 +641,7 @@ blt_fancy_pat_mode_to_pixmap(RgnHandle rh, int mode,
         int dst_top = pixmap->bounds.top;
         int dst_left = pixmap->bounds.left;
 
-        if(!pcRootlessNoteDirty((uint32_t)(uintptr_t)(char *)pixmap->baseAddr,
+        if(!yoreRootlessNoteDirty((uint32_t)(uintptr_t)(char *)pixmap->baseAddr,
                                 r->top - dst_top, r->left - dst_left,
                                 r->bottom - dst_top, r->right - dst_left))
             dirty_rect_accrue(r->top - dst_top, r->left - dst_left,

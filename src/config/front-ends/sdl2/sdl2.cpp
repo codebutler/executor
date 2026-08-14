@@ -2,7 +2,7 @@
 #include <SegmentLdr.h>
 
 #include "keycode_map.h"
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 #include <algorithm>
 #include <string>
 #include <cstdint>
@@ -91,11 +91,11 @@ bool SDL2VideoDriver::setMode(int width, int height, int bpp, bool grayscale_p)
             bpp = framebuffer_.bpp;
         if(!bpp)
         {
-            /* pc rootless expects a real 1-bit screenBits BitMap so classic
+            /* Yore rootless expects a real 1-bit screenBits BitMap so classic
              * BufToScrn / ScreenRow smashers work; SDL's historic default of
              * 8bpp breaks that (screenBits.rowBytes becomes width/8 while the
              * framebuffer is packed 8bpp). */
-            const char *rootless = getenv("PC_ROOTLESS_WINDOWS");
+            const char *rootless = getenv("YORE_ROOTLESS_WINDOWS");
             bpp = (rootless && rootless[0] == '1') ? 1 : 8;
         }
 
@@ -183,13 +183,13 @@ void SDL2VideoDriver::runEventLoop()
 
     for(;;)
     {
-        /* pc rootless: injected per-window input arrives via a ring in
+        /* Yore rootless: injected per-window input arrives via a ring in
          * shared memory (no DOM/SDL path); poll it a few times per frame.
          * The timeout also bounds injected-input latency. */
-        int gotEvent = pcRootlessEnabled()
+        int gotEvent = yoreRootlessEnabled()
             ? SDL_WaitEventTimeout(&event, 4)
             : (SDL_WaitEvent(&event), 1);
-        pcRootlessDrainInput(callbacks_);
+        yoreRootlessDrainInput(callbacks_);
         if(!gotEvent)
             event.type = 0;
 
@@ -276,9 +276,9 @@ void SDL2VideoDriver::setCursor(char *cursor_data,
                                unsigned short cursor_mask[16],
                                int hotspot_x, int hotspot_y)
 {
-    /* pc rootless: mirror the cursor into the bridge table — the SDL
+    /* Yore rootless: mirror the cursor into the bridge table — the SDL
      * cursor lands on a detached canvas nobody sees. */
-    Executor::pcRootlessSetCursor(cursor_data, cursor_mask, hotspot_x, hotspot_y);
+    Executor::yoreRootlessSetCursor(cursor_data, cursor_mask, hotspot_x, hotspot_y);
     onMainThread([&] {
         SDL_Cursor *old_cursor, *new_cursor;
 
@@ -296,20 +296,20 @@ void SDL2VideoDriver::setCursor(char *cursor_data,
 
 void SDL2VideoDriver::setCursorVisible(bool show_p)
 {
-    Executor::pcRootlessSetCursorVisible(show_p);
+    Executor::yoreRootlessSetCursorVisible(show_p);
     onMainThread([&] {
         SDL_ShowCursor(show_p);
     });
 }
 
-/* pc rootless: called on the emulator thread from doevent. A pending
+/* Yore rootless: called on the emulator thread from doevent. A pending
  * screen-size request rebuilds the framebuffer + SDL surface (on the SDL
  * thread) and returns true so gd_vdriver_mode_changed() re-plumbs the
  * GDevice, ports, and GrayRgn. */
 bool SDL2VideoDriver::updateMode()
 {
     int w, h;
-    if(!Executor::pcRootlessTakeScreenSizeRequest(&w, &h))
+    if(!Executor::yoreRootlessTakeScreenSizeRequest(&w, &h))
         return false;
     if(w == framebuffer_.width && h == framebuffer_.height)
         return false;

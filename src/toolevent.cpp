@@ -21,7 +21,7 @@
 #include <TimeMgr.h>
 
 #include <quickdraw/cquick.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 #include <hfs/hfs.h>
 #include <res/resource.h>
 #include <hfs/futzwithdosdisks.h>
@@ -246,9 +246,9 @@ static Boolean doevent(INTEGER em, EventRecord *evt,
     if(vdriver->updateMode())
         Executor::gd_vdriver_mode_changed();
 
-    /* pc rootless: host-activation → guest activation, consumed before the
+    /* Yore rootless: host-activation → guest activation, consumed before the
      * click event is dequeued so FindWindow sees the host stacking. */
-    Executor::pcRootlessHandleRaise();
+    Executor::yoreRootlessHandleRaise();
 
     hle_reset();
 

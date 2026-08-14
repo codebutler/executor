@@ -19,7 +19,7 @@ public:
     void runEventLoop() override;
     void endEventLoop() override;
 
-    /* pc rootless: consume a pending screen-size request on the emulator
+    /* Yore rootless: consume a pending screen-size request on the emulator
      * thread (doevent polls this; true → gd_vdriver_mode_changed runs). */
     bool updateMode() override;
 
