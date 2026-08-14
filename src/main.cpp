@@ -84,7 +84,7 @@ using namespace Executor;
 
 // pc MacTCP `.IPP` networking veneer (#711, wind/mactcp_bridge.cpp):
 // register the driver + the 'dnrp' DNR resource once at boot.
-extern "C" void pc_mactcp_init(void);
+extern "C" void yore_mactcp_init(void);
 extern "C" void pc_platinum_init(void);
 using namespace std;
 
@@ -458,7 +458,7 @@ int main(int argc, char **argv)
             // Here (right after InitResources) the System file is the current
             // resource file, so GetIndResource('dnrp',1) finds our resource,
             // and RegisterDriver runs before InitAppFiles launches any app.
-            pc_mactcp_init();
+            yore_mactcp_init();
             pc_platinum_init();
 
             ROMlib_set_system_version(system_version);

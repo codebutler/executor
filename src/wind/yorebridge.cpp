@@ -1,7 +1,7 @@
-/* pc rootless-windows bridge — see pcbridge.h for the model.
+/* Yore rootless-windows bridge — see yorebridge.h for the model.
  *
  * Everything here runs on the emulator (Toolbox) thread except
- * pcRootlessDrainInput (SDL front-end thread) and the JS reader, which
+ * yoreRootlessDrainInput (SDL front-end thread) and the JS reader, which
  * polls the seqlock'd Table / writes dirtyAck + the ring head from the
  * browser main thread. Shared fields are touched through __atomic
  * builtins; wasm shared memory makes them interoperable with JS Atomics.
@@ -9,10 +9,10 @@
  * Geometry model: the backing buffer covers the window's STRUCT rect
  * (frame + content; buffer origin = struct top-left in guest-global
  * coords). Until the first wCalcRgns the struct rect is assumed equal to
- * the content rect; pcRootlessSyncFrame grows the buffer once the WDEF
+ * the content rect; yoreRootlessSyncFrame grows the buffer once the WDEF
  * has computed the real regions. For private-buffer windows the baseAddr
  * stored in the window port (and temporarily in WMgrCPort during
- * PcFrameRedirect) is BIASED so that classic bounds-based addressing hits
+ * YoreFrameRedirect) is BIASED so that classic bounds-based addressing hits
  * the buffer: real − (sy·rowBytes + sx·4). Screen-backed B&W windows keep
  * portBits on screenBits and only the host-facing display buffer is
  * private. The dirty-note sites hand us GLOBAL coordinates (rect minus
@@ -29,7 +29,7 @@
 
 #include <quickdraw/cquick.h>
 #include <wind/wind.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 #include <vdriver/vdriver.h>
 
 #include <algorithm>
@@ -43,17 +43,17 @@
 
 #ifdef EMSCRIPTEN
 #include <emscripten.h>
-#define PC_EXPORT EMSCRIPTEN_KEEPALIVE
+#define YORE_EXPORT EMSCRIPTEN_KEEPALIVE
 #else
-#define PC_EXPORT
+#define YORE_EXPORT
 #endif
 
 using namespace Executor;
 
 namespace
 {
-constexpr uint32_t PC_MAGIC = 0x70435257; /* 'pCRW' */
-constexpr uint32_t PC_VERSION = 4;
+constexpr uint32_t YORE_MAGIC = 0x45524f59; /* 'YORE' */
+constexpr uint32_t YORE_VERSION = 4;
 constexpr int MAX_WINS = 64;
 constexpr int TITLE_BYTES = 48;
 constexpr int RING_CAP = 256;
@@ -119,7 +119,7 @@ struct InputRing
     InputRec recs[RING_CAP];
 };
 
-Table table = { PC_MAGIC, PC_VERSION, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {}, {}, {}, 0, 1, 0, 0, {} };
+Table table = { YORE_MAGIC, YORE_VERSION, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {}, {}, {}, 0, 1, 0, 0, {} };
 InputRing ring = { 0, 0, RING_CAP, 0, {} };
 
 struct BufRec
@@ -143,7 +143,7 @@ struct BufRec
 std::unordered_map<uint32_t, BufRec> byWin; /* WindowPeek → rec */
 std::unordered_map<uint32_t, BufRec *> byBiased; /* biased baseAddr → rec */
 std::unordered_map<uint32_t, BufRec *> byReal; /* real buffer ptr → rec
-    (PcFrameRedirect binds the wmgr pixmap to the UNBIASED buffer with
+    (YoreFrameRedirect binds the wmgr pixmap to the UNBIASED buffer with
     bounds = struct rect, so accrue sites hand us buffer-local coords) */
 std::vector<Rect> openMenus; /* dropdown screen rects, innermost last */
 
@@ -271,7 +271,7 @@ void markFullDirty(BufRec &r)
 /* Expand a screen-backed window's CONTENT from the 1-bit screenBits crop
  * into its 32bpp host display buffer (big-endian XRGB: black=0x00000000,
  * white=0x00FFFFFF). Only the content rect is written — frame insets are
- * painted by WDEF via PcFrameRedirect into this same buffer, and must not
+ * painted by WDEF via YoreFrameRedirect into this same buffer, and must not
  * be clobbered (struct regions often extend above screenBits.bounds; those
  * pixels have no screen source). The optional clip (buffer coords) limits
  * the refresh to a damaged sub-rect. */
@@ -333,8 +333,8 @@ void expandScreenBacked(BufRec &r, int cl = INT_MIN, int ct = INT_MIN,
         }
     }
 
-    /* Dirty just the content — frame chrome is dirtied by PcFrameRedirect
-     * draws through pcRootlessNoteDirty. */
+    /* Dirty just the content — frame chrome is dirtied by YoreFrameRedirect
+     * draws through yoreRootlessNoteDirty. */
     WinSlot &s = table.wins[r.slot];
     uint32_t seq = atomicLoad(&s.dirtySeq);
     uint32_t ack = atomicLoad(&s.dirtyAck);
@@ -366,7 +366,7 @@ void dropRecordNoPort(uint32_t key)
         return;
     BufRec &r = it->second;
     table.wins[r.slot].hwnd = 0;
-    /* Display buffers are always registered in byBiased (for PcFrameRedirect
+    /* Display buffers are always registered in byBiased (for YoreFrameRedirect
      * / dirty notes), even when the window port stays screen-backed. */
     byBiased.erase(r.biased);
     byReal.erase((uint32_t)(uintptr_t)r.bytes);
@@ -391,20 +391,20 @@ void rebias(BufRec &r, WindowPeek w)
 static uint32_t pendingScreenSize = 0; /* (w<<16)|h, 0 = none */
 static uint32_t pendingRaise = 0; /* hwnd, 0 = none */
 
-bool Executor::pcRootlessEnabled()
+bool Executor::yoreRootlessEnabled()
 {
     static int cached = -1;
     if(cached < 0)
     {
-        const char *v = getenv("PC_ROOTLESS_WINDOWS");
+        const char *v = getenv("YORE_ROOTLESS_WINDOWS");
         cached = (v && v[0] == '1') ? 1 : 0;
     }
     return cached == 1;
 }
 
-void Executor::pcRootlessWindowCreated(WindowPeek w)
+void Executor::yoreRootlessWindowCreated(WindowPeek w)
 {
-    if(!pcRootlessEnabled())
+    if(!yoreRootlessEnabled())
         return;
     /* A live window can't share an address with another live window: an
      * existing entry here means the old WindowRecord was abandoned (app
@@ -417,7 +417,7 @@ void Executor::pcRootlessWindowCreated(WindowPeek w)
     int slot = freeSlot();
     if(slot < 0)
     {
-        warning_unexpected("pc rootless: out of window slots");
+        warning_unexpected("Yore rootless: out of window slots");
         return;
     }
 
@@ -436,7 +436,7 @@ void Executor::pcRootlessWindowCreated(WindowPeek w)
     /* B&W GrafPort on a 1-bit screen: keep portBits on screenBits so
      * classic screen-smashers (BufToScrn / ScreenRow) see a real 1-bit
      * BitMap. Host compositor still gets a 32bpp display buffer (registered
-     * in byBiased for PcFrameRedirect — frame chrome often sits above the
+     * in byBiased for YoreFrameRedirect — frame chrome often sits above the
      * screen and must not be drawn into the framebuffer). */
     r.screenBacked = (vdriver && vdriver->bpp() == 1) && !CGrafPort_p(w);
     r.bytes = (uint8_t *)malloc((size_t)r.rowBytes * r.sh);
@@ -463,10 +463,10 @@ void Executor::pcRootlessWindowCreated(WindowPeek w)
         expandScreenBacked(rec);
     else
         markFullDirty(rec);
-    pcRootlessPublish();
+    yoreRootlessPublish();
 }
 
-void Executor::pcRootlessWindowDisposed(WindowPeek w)
+void Executor::yoreRootlessWindowDisposed(WindowPeek w)
 {
     auto it = byWin.find(winKey(w));
     if(it == byWin.end())
@@ -495,10 +495,10 @@ void Executor::pcRootlessWindowDisposed(WindowPeek w)
     table.wins[r.slot].hwnd = 0;
     free(r.bytes);
     byWin.erase(it);
-    pcRootlessPublish();
+    yoreRootlessPublish();
 }
 
-void Executor::pcRootlessWindowMoved(WindowPeek w)
+void Executor::yoreRootlessWindowMoved(WindowPeek w)
 {
     auto it = byWin.find(winKey(w));
     if(it == byWin.end())
@@ -516,25 +516,25 @@ void Executor::pcRootlessWindowMoved(WindowPeek w)
     r.sy = gy - r.ft;
     rebias(r, w);
     publishGeometry(r);
-    pcRootlessPublish();
+    yoreRootlessPublish();
 }
 
-void Executor::pcRootlessWindowResized(WindowPeek w)
+void Executor::yoreRootlessWindowResized(WindowPeek w)
 {
     auto it = byWin.find(winKey(w));
     if(it == byWin.end())
         return;
     BufRec &r = it->second;
     /* Only track the new content metrics; the buffer itself grows at the
-     * wCalcRgns that inevitably follows (pcRootlessSyncFrame), once the
+     * wCalcRgns that inevitably follows (yoreRootlessSyncFrame), once the
      * WDEF has computed the new struct region. Until then drawing is
      * clipped to the stale (smaller) visRgn, so the old buffer is safe. */
     contentGeometry(w, &r.gx, &r.gy, &r.cw, &r.ch);
     publishGeometry(r);
-    pcRootlessPublish();
+    yoreRootlessPublish();
 }
 
-void Executor::pcRootlessSyncFrame(WindowPeek w)
+void Executor::yoreRootlessSyncFrame(WindowPeek w)
 {
     auto it = byWin.find(winKey(w));
     if(it == byWin.end())
@@ -610,12 +610,12 @@ void Executor::pcRootlessSyncFrame(WindowPeek w)
 
     publishGeometry(r);
     markFullDirty(r);
-    pcRootlessPublish();
+    yoreRootlessPublish();
 }
 
-void Executor::pcRootlessNudgeOnscreen(WindowPeek w)
+void Executor::yoreRootlessNudgeOnscreen(WindowPeek w)
 {
-    if(!pcRootlessEnabled() || !w)
+    if(!yoreRootlessEnabled() || !w)
         return;
     if(byWin.find(winKey(w)) == byWin.end())
         return;
@@ -644,9 +644,9 @@ void Executor::pcRootlessNudgeOnscreen(WindowPeek w)
     MoveWindow((WindowPtr)w, gx + dx, gy + dy, false);
 }
 
-void Executor::pcRootlessPublish()
+void Executor::yoreRootlessPublish()
 {
-    if(!pcRootlessEnabled())
+    if(!yoreRootlessEnabled())
         return;
 
     uint32_t seq = table.seq;
@@ -728,7 +728,7 @@ void Executor::pcRootlessPublish()
     atomicStore(&table.seq, seq + 2); /* even: stable */
 }
 
-bool Executor::pcRootlessIsWinBuf(uint32_t baseAddr)
+bool Executor::yoreRootlessIsWinBuf(uint32_t baseAddr)
 {
     if(byBiased.empty())
         return false;
@@ -736,7 +736,7 @@ bool Executor::pcRootlessIsWinBuf(uint32_t baseAddr)
         || byReal.find(baseAddr) != byReal.end();
 }
 
-bool Executor::pcRootlessNoteDirty(uint32_t baseAddr, int top, int left,
+bool Executor::yoreRootlessNoteDirty(uint32_t baseAddr, int top, int left,
                                    int bottom, int right)
 {
     if(byBiased.empty())
@@ -747,7 +747,7 @@ bool Executor::pcRootlessNoteDirty(uint32_t baseAddr, int top, int left,
         rp = it->second;
     else if(auto it2 = byReal.find(baseAddr); it2 != byReal.end())
     {
-        /* PcFrameRedirect port: bounds = struct rect, so the accrue site's
+        /* YoreFrameRedirect port: bounds = struct rect, so the accrue site's
          * rect − bounds.topLeft is ALREADY buffer-local. */
         rp = it2->second;
         localCoords = true;
@@ -794,9 +794,9 @@ bool Executor::pcRootlessNoteDirty(uint32_t baseAddr, int top, int left,
     return true;
 }
 
-void Executor::pcRootlessScreenDamaged(int top, int left, int bottom, int right)
+void Executor::yoreRootlessScreenDamaged(int top, int left, int bottom, int right)
 {
-    if(!pcRootlessEnabled() || byWin.empty())
+    if(!yoreRootlessEnabled() || byWin.empty())
         return;
     /* Screen-backed windows draw their CONTENT straight onto screenBits;
      * without this, a guest draw (a QD draw to the screen, or a direct
@@ -814,11 +814,11 @@ void Executor::pcRootlessScreenDamaged(int top, int left, int bottom, int right)
     }
 }
 
-/* ── PcFrameRedirect ─────────────────────────────────────────────────── */
+/* ── YoreFrameRedirect ─────────────────────────────────────────────────── */
 
-PcFrameRedirect::PcFrameRedirect(WindowPeek w)
+YoreFrameRedirect::YoreFrameRedirect(WindowPeek w)
 {
-    if(!pcRootlessEnabled() || !w)
+    if(!yoreRootlessEnabled() || !w)
         return;
     if(qdGlobals().thePort != wmgr_port)
         return;
@@ -877,7 +877,7 @@ PcFrameRedirect::PcFrameRedirect(WindowPeek w)
     active_ = true;
 }
 
-PcFrameRedirect::~PcFrameRedirect()
+YoreFrameRedirect::~YoreFrameRedirect()
 {
     if(!active_)
         return;
@@ -899,9 +899,9 @@ PcFrameRedirect::~PcFrameRedirect()
     }
 }
 
-void Executor::pcRootlessMenuOpen(Rect r)
+void Executor::yoreRootlessMenuOpen(Rect r)
 {
-    if(!pcRootlessEnabled())
+    if(!yoreRootlessEnabled())
         return;
     /* The Menu Manager reports the INTERIOR rect; the frame and drop
      * shadow draw just outside it (same −1/+2 inflation upstream's
@@ -912,21 +912,21 @@ void Executor::pcRootlessMenuOpen(Rect r)
     r.right = std::min((int)table.screenW, r.right + 2);
     r.bottom = std::min((int)table.screenH, r.bottom + 2);
     openMenus.push_back(r);
-    pcRootlessPublish();
+    yoreRootlessPublish();
 }
 
-void Executor::pcRootlessMenuClose()
+void Executor::yoreRootlessMenuClose()
 {
-    if(!pcRootlessEnabled())
+    if(!yoreRootlessEnabled())
         return;
     if(!openMenus.empty())
         openMenus.pop_back();
-    pcRootlessPublish();
+    yoreRootlessPublish();
 }
 
-void Executor::pcRootlessDrainInput(IEventListener *listener)
+void Executor::yoreRootlessDrainInput(IEventListener *listener)
 {
-    if(!pcRootlessEnabled() || !listener)
+    if(!yoreRootlessEnabled() || !listener)
         return;
     uint32_t head = atomicLoad(&ring.head);
     uint32_t tail = ring.tail;
@@ -939,7 +939,7 @@ void Executor::pcRootlessDrainInput(IEventListener *listener)
                 listener->mouseMoved(rec.x, rec.y);
                 break;
             case 5:
-                pcRootlessRequestScreenSize(rec.x, rec.y);
+                yoreRootlessRequestScreenSize(rec.x, rec.y);
                 break;
             case 6:
                 __atomic_store_n(&pendingRaise, (uint32_t)rec.aux,
@@ -974,10 +974,10 @@ void Executor::pcRootlessDrainInput(IEventListener *listener)
     atomicStore(&ring.tail, tail);
 }
 
-void Executor::pcRootlessSetCursor(const char *data, const uint16_t mask[16],
+void Executor::yoreRootlessSetCursor(const char *data, const uint16_t mask[16],
                                    int hotX, int hotY)
 {
-    if(!pcRootlessEnabled())
+    if(!yoreRootlessEnabled())
         return;
     const uint8_t *d = (const uint8_t *)data;
     const uint8_t *m = (const uint8_t *)mask;
@@ -1000,18 +1000,18 @@ void Executor::pcRootlessSetCursor(const char *data, const uint16_t mask[16],
     atomicStore(&table.cursorSeq, seq + 1);
 }
 
-void Executor::pcRootlessSetCursorVisible(bool visible)
+void Executor::yoreRootlessSetCursorVisible(bool visible)
 {
-    if(!pcRootlessEnabled())
+    if(!yoreRootlessEnabled())
         return;
     atomicStore(&table.cursorVisible, visible ? 1 : 0);
     uint32_t seq = atomicLoad(&table.cursorSeq);
     atomicStore(&table.cursorSeq, seq + 1);
 }
 
-void Executor::pcRootlessHandleRaise()
+void Executor::yoreRootlessHandleRaise()
 {
-    if(!pcRootlessEnabled())
+    if(!yoreRootlessEnabled())
         return;
     uint32_t h = __atomic_exchange_n(&pendingRaise, 0, __ATOMIC_ACQ_REL);
     if(!h || !byWin.count(h))
@@ -1028,7 +1028,7 @@ void Executor::pcRootlessHandleRaise()
     SelectWindow(w);
 }
 
-void Executor::pcRootlessRequestScreenSize(int w, int h)
+void Executor::yoreRootlessRequestScreenSize(int w, int h)
 {
     if(w < 512 || h < 342 || w > 8191 || h > 8191)
         return;
@@ -1036,7 +1036,7 @@ void Executor::pcRootlessRequestScreenSize(int w, int h)
                      __ATOMIC_RELEASE);
 }
 
-bool Executor::pcRootlessTakeScreenSizeRequest(int *w, int *h)
+bool Executor::yoreRootlessTakeScreenSizeRequest(int *w, int *h)
 {
     uint32_t v = __atomic_exchange_n(&pendingScreenSize, 0, __ATOMIC_ACQ_REL);
     if(!v)
@@ -1047,11 +1047,11 @@ bool Executor::pcRootlessTakeScreenSizeRequest(int *w, int *h)
 }
 
 extern "C" {
-PC_EXPORT uint32_t pc_rootless_table(void)
+YORE_EXPORT uint32_t yore_rootless_table(void)
 {
     return (uint32_t)(uintptr_t)&table;
 }
-PC_EXPORT uint32_t pc_rootless_ring(void)
+YORE_EXPORT uint32_t yore_rootless_ring(void)
 {
     return (uint32_t)(uintptr_t)&ring;
 }

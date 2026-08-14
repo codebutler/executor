@@ -12,7 +12,7 @@
 /* get {C}PORT_... accessors */
 #include <quickdraw/cquick.h>
 #include <wind/wind.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 
 using namespace Executor;
 
@@ -31,7 +31,7 @@ void Executor::C_SetWTitle(WindowPtr w, ConstStringPtr t)
         ClipAbove((WindowPeek)w);
         WINDCALL(w, wDraw, 0);
     }
-    pcRootlessPublish(); /* pc rootless: host titlebar follows */
+    yoreRootlessPublish(); /* Yore rootless: host titlebar follows */
 }
 
 void Executor::C_GetWTitle(WindowPtr w, StringPtr t)
@@ -78,7 +78,7 @@ void Executor::C_HiliteWindow(WindowPtr w, Boolean flag)
         WINDOW_HILITED(w) = false;
         WINDCALL(w, wDraw, 0);
     }
-    pcRootlessPublish(); /* pc rootless: host active state follows */
+    yoreRootlessPublish(); /* Yore rootless: host active state follows */
 }
 
 void Executor::C_BringToFront(WindowPtr w)
@@ -155,9 +155,9 @@ void Executor::C_ShowHide(WindowPtr w, Boolean flag)
  *	   if (EmptyRgn (WINDOW_STRUCT_REGION (w)))
  */
         WINDCALL(w, wCalcRgns, 0);
-        /* pc rootless: thicker chrome (e.g. Platinum) must not hang off the
+        /* Yore rootless: thicker chrome (e.g. Platinum) must not hang off the
          * screen's left/top edge on first show. */
-        pcRootlessNudgeOnscreen((WindowPeek)w);
+        yoreRootlessNudgeOnscreen((WindowPeek)w);
         SetClip(WINDOW_STRUCT_REGION(w));
         ClipAbove((WindowPeek)w);
         CalcVisBehind((WindowPeek)w, PORT_CLIP_REGION(wmgr_port));
@@ -180,8 +180,8 @@ void Executor::C_ShowHide(WindowPtr w, Boolean flag)
         if(content_color)
             RGBBackColor(content_color);
         {
-            /* pc rootless: the content fill lands in the window buffer */
-            PcFrameRedirect redirect((WindowPeek)w);
+            /* Yore rootless: the content fill lands in the window buffer */
+            YoreFrameRedirect redirect((WindowPeek)w);
             FillRgn(WINDOW_CONT_REGION(w), &qdGlobals().white);
         }
         if(content_color)

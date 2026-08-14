@@ -1,5 +1,5 @@
 #include <wind/wind.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 #include <vdriver/vdriver.h>
 #include <MenuMgr.h>
 
@@ -17,9 +17,9 @@ void Executor::ROMlib_rootless_update(RgnHandle extra)
 #ifdef LOG_ROOTLESS
     std::cout << "ROMlib_rootless_update\n";
 #endif
-    /* pc rootless: every Window Manager mutation funnels through here —
+    /* Yore rootless: every Window Manager mutation funnels through here —
      * republish the window snapshot table for the host. */
-    pcRootlessPublish();
+    yoreRootlessPublish();
     if(vdriver->isRootless())
     {
         RgnHandle rgn = NewRgn();
@@ -54,7 +54,7 @@ void Executor::ROMlib_rootless_openmenu(Rect r)
 #ifdef LOG_ROOTLESS
     std::cout << "ROMlib_rootless_openmenu\n";
 #endif
-    pcRootlessMenuOpen(r); /* pc rootless: host overlays this screen rect */
+    yoreRootlessMenuOpen(r); /* Yore rootless: host overlays this screen rect */
     if(vdriver->isRootless())
     {
         r.left   = r.left   - 1;
@@ -70,7 +70,7 @@ void Executor::ROMlib_rootless_closemenu()
 #ifdef LOG_ROOTLESS
     std::cout << "ROMlib_rootless_closemenu\n";
 #endif
-    pcRootlessMenuClose(); /* pc rootless: drop the host overlay */
+    yoreRootlessMenuClose(); /* Yore rootless: drop the host overlay */
     if(vdriver->isRootless())
     {
         if(rootlessMenus.empty())

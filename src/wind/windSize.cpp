@@ -15,7 +15,7 @@
 
 #include <quickdraw/cquick.h>
 #include <wind/wind.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 
 #include <algorithm>
 
@@ -35,10 +35,10 @@ void Executor::C_MoveWindow(WindowPtr wp, INTEGER h, INTEGER v, Boolean front)
 
     w = (WindowPeek)wp;
 
-    /* pc rootless: the buffer travels with the window — no screen blit, no
+    /* Yore rootless: the buffer travels with the window — no screen blit, no
      * occlusion churn, no repaint. Just offset the regions and re-bias.
      * Cheap enough to run per-mousemove for live drags. */
-    if(pcRootlessEnabled())
+    if(yoreRootlessEnabled())
     {
         int dh = h + PORT_BOUNDS(w).left - PORT_RECT(w).left;
         int dv = v + PORT_BOUNDS(w).top - PORT_RECT(w).top;
@@ -48,7 +48,7 @@ void Executor::C_MoveWindow(WindowPtr wp, INTEGER h, INTEGER v, Boolean front)
             OffsetRgn(WINDOW_CONT_REGION(w), dh, dv);
             OffsetRgn(WINDOW_UPDATE_REGION(w), dh, dv);
             OffsetRect(&PORT_BOUNDS(w), -dh, -dv);
-            pcRootlessWindowMoved(w);
+            yoreRootlessWindowMoved(w);
         }
         if(front)
             SelectWindow((WindowPtr)w);
@@ -157,8 +157,8 @@ void Executor::C_MoveWindow(WindowPtr wp, INTEGER h, INTEGER v, Boolean front)
     OffsetRgn(WINDOW_CONT_REGION(w), h, v);
     OffsetRgn(WINDOW_UPDATE_REGION(w), h, v);
     OffsetRect(&PORT_BOUNDS(w), -h, -v);
-    /* pc rootless: bounds moved → re-bias the backing buffer's baseAddr */
-    pcRootlessWindowMoved(w);
+    /* Yore rootless: bounds moved → re-bias the backing buffer's baseAddr */
+    yoreRootlessWindowMoved(w);
     if(WINDOW_VISIBLE(w))
     {
         ClipRect(&GD_BOUNDS(LM(TheGDevice)));
@@ -202,10 +202,10 @@ void Executor::C_DragWindow(WindowPtr wp, Point p, const Rect *rp)
     if(cmddown)
         ClipAbove((WindowPeek)wp);
 
-    /* pc rootless: no XOR outline (it would draw on the invisible screen) —
+    /* Yore rootless: no XOR outline (it would draw on the invisible screen) —
      * live-move the window each mouse step instead; the host window follows
      * through the moved-hook. Mirrors GrowWindow's tracking loop. */
-    if(pcRootlessEnabled())
+    if(yoreRootlessEnabled())
     {
         Point last = p;
         int origH = -PORT_BOUNDS(wp).left + PORT_RECT(wp).left;
@@ -298,12 +298,12 @@ LONGINT Executor::C_GrowWindow(WindowPtr w, Point startp, const Rect *rp)
     pinr.right  = std::min(32767, startp.h - (r.right - r.left) + (int)rp->right);
     pinr.bottom = std::min(32767, startp.v - (r.bottom - r.top) + (int)rp->bottom);
 
-    /* pc rootless: no XOR outline (invisible screen) — live-resize the
+    /* Yore rootless: no XOR outline (invisible screen) — live-resize the
      * window each mouse step instead; the host window follows through the
      * wCalcRgns → syncFrame path. The app still gets the classic contract
      * (returns the final size; its own SizeWindow call is then a no-op
      * size-wise). Content repaints on the update events SizeWindow posts. */
-    if(pcRootlessEnabled())
+    if(yoreRootlessEnabled())
     {
         EventRecord ev2;
         Point last = p;
@@ -373,8 +373,8 @@ void Executor::C_SizeWindow(WindowPtr w, INTEGER width, INTEGER height,
         PORT_RECT(w).right = PORT_RECT(w).left + width;
         PORT_RECT(w).bottom = PORT_RECT(w).top + height;
 
-        /* pc rootless: grow/shrink the private backing buffer */
-        pcRootlessWindowResized((WindowPeek)w);
+        /* Yore rootless: grow/shrink the private backing buffer */
+        yoreRootlessWindowResized((WindowPeek)w);
 
         ThePortGuard guard(wmgr_port);
         WINDCALL(w, wCalcRgns, 0);

@@ -20,7 +20,7 @@
 #include <mman/mman.h>
 #include <commandline/flags.h>
 #include <mman/tempalloc.h>
-#include <wind/pcbridge.h>
+#include <wind/yorebridge.h>
 
 using namespace Executor;
 
@@ -115,11 +115,11 @@ void Executor::canonicalize_bogo_map(const BitMap *bogo_map, PixMap **canonical_
 
                 info->cleanup_type = Executor::cleanup_info::cleanup_none;
             }
-            else if(pcRootlessIsWinBuf(
+            else if(yoreRootlessIsWinBuf(
                         (uint32_t)(uintptr_t)(char *)canonical->baseAddr))
             {
                 /* Private rootless winbufs are always 32bpp XRGB (see
-                 * wind/pcbridge.h), even when the guest port is a classic
+                 * wind/yorebridge.h), even when the guest port is a classic
                  * B&W GrafPort whose portBits look like a 1-bit BitMap.
                  * Without this, CopyBits — used by StdText glyph blits and
                  * by apps that SetPortBits to a 1-bit offscreen shadow then
