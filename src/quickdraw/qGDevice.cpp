@@ -22,6 +22,7 @@
 #include <quickdraw/region.h>
 
 #include <iostream>
+#include <cstdlib>
 
 using namespace Executor;
 
@@ -401,10 +402,13 @@ INTEGER Executor::C_HasDepth(GDHandle gdh, INTEGER bpp, INTEGER which_flags,
 static void gd_update_all_ports(GDHandle gdh, GUEST<Ptr> oldBaseAddr, Rect oldGDRect)
 {
     PixMapHandle gd_pixmap = GD_PMAP(gdh);
+    const bool videoDebug = std::getenv("YORE_VIDEO_DEBUG") != nullptr;
+    if(videoDebug)
+        fprintf(stderr, "[video-resize] old=%p new=%p rowBytes=%d\n",
+                (void *)(Ptr)oldBaseAddr, (void *)PIXMAP_BASEADDR(gd_pixmap),
+                PIXMAP_ROWBYTES(gd_pixmap));
 
-    /* FIXME: assuming (1) all windows are on the current
-     graphics device, and (2) the rowbytes and baseaddr
-     of the gdevice cannot change */
+    /* Screen ports follow the current graphics device. */
     /* set the pixel size, rowbytes, etc
      of windows and the window manager color graphics port */
 
@@ -435,17 +439,15 @@ static void gd_update_all_ports(GDHandle gdh, GUEST<Ptr> oldBaseAddr, Rect oldGD
 
         for(GrafPtr gp : portList)
         {
-            Rect newBounds = PORT_BOUNDS(gp);
-            newBounds.right = newBounds.left - screen.left + screen.right;
-            newBounds.bottom = newBounds.top - screen.top + screen.bottom;
-            PORT_BOUNDS(gp) = newBounds;
-
             if(CGrafPort_p(gp))
             {
                 PixMapHandle port_pixmap = CPORT_PIXMAP(gp);
                 if(PIXMAP_BASEADDR(port_pixmap) != oldBaseAddr)
                     continue;
 
+                // 32-bit builds store direct framebuffer addresses; resizing
+                // frees the old allocation. Update the base as well as stride.
+                PIXMAP_BASEADDR(port_pixmap) = PIXMAP_BASEADDR(gd_pixmap);
                 pixmap_set_pixel_fields(*port_pixmap, PIXMAP_PIXEL_SIZE(gd_pixmap));
                 PIXMAP_SET_ROWBYTES(port_pixmap, PIXMAP_ROWBYTES(gd_pixmap));
                 
@@ -461,12 +463,21 @@ static void gd_update_all_ports(GDHandle gdh, GUEST<Ptr> oldBaseAddr, Rect oldGD
             {
                 if(PORT_BITS(gp).baseAddr != oldBaseAddr)
                     continue;
+                PORT_BITS(gp).baseAddr = PIXMAP_BASEADDR(gd_pixmap);
                 /* B&W ports store a BitMap stride (bytes/row of 1-bit), not
                  * the PixMap's deep rowBytes — same formula as screenBits. */
                 BITMAP_SET_ROWBYTES(&PORT_BITS(gp),
                                       PIXMAP_ROWBYTES(gd_pixmap)
                                           / PIXMAP_PIXEL_SIZE(gd_pixmap));
             }
+
+            Rect newBounds = PORT_BOUNDS(gp);
+            newBounds.right = newBounds.left - screen.left + screen.right;
+            newBounds.bottom = newBounds.top - screen.top + screen.bottom;
+            PORT_BOUNDS(gp) = newBounds;
+
+            if(videoDebug)
+                fprintf(stderr, "[video-resize] retarget port=%p\n", (void *)gp);
 
             if(EqualRect(&PORT_RECT(gp), &oldGDRect))
             {

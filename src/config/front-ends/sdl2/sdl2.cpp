@@ -324,7 +324,15 @@ bool SDL2VideoDriver::updateMode()
 
         if(sdlSurface)
             SDL_FreeSurface(sdlSurface);
-        uint32_t pixelFormat = SDL_PIXELFORMAT_BGRX8888;
+        uint32_t pixelFormat;
+        switch(bpp)
+        {
+            case 1: pixelFormat = SDL_PIXELFORMAT_INDEX1LSB; break;
+            case 4: pixelFormat = SDL_PIXELFORMAT_INDEX4LSB; break;
+            case 8: pixelFormat = SDL_PIXELFORMAT_INDEX8; break;
+            case 16: pixelFormat = SDL_PIXELFORMAT_RGB555; break;
+            default: pixelFormat = SDL_PIXELFORMAT_BGRX8888; break;
+        }
         uint32_t rmask, gmask, bmask, amask;
         int sdlBpp;
         SDL_PixelFormatEnumToMasks(pixelFormat, &sdlBpp, &rmask, &gmask, &bmask, &amask);
