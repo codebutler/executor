@@ -653,6 +653,17 @@ save_and_switch_to_color_port_if_needed(save_t *sp)
 
     if(CGrafPort_p(qdGlobals().thePort))
         retval = false;
+    else if(!active_screen_addr_p(&qdGlobals().thePort->portBits))
+    {
+        // A true offscreen BitMap remains monochrome. Borrowing WMgrCPort's
+        // PixMap would redirect local control drawing into the screen (for
+        // example, scrollbar arrows at y=0 would overwrite the menu bar).
+        if(getenv("YORE_VIDEO_DEBUG"))
+            fprintf(stderr, "[control-port] retain offscreen bitmap=%p rowBytes=%d\n",
+                    (void *)qdGlobals().thePort->portBits.baseAddr,
+                    (int)qdGlobals().thePort->portBits.rowBytes);
+        retval = false;
+    }
     else
     {
         CGrafPtr wp;
@@ -662,6 +673,22 @@ save_and_switch_to_color_port_if_needed(save_t *sp)
         wp = (CGrafPtr)wmgr_port;
         sp->cp.portPixMap = (PixMapHandle)CopyMacHandle((Handle)wp->portPixMap);
         PIXMAP_BOUNDS(sp->cp.portPixMap) = qdGlobals().thePort->portBits.bounds;
+        if(yoreRootlessIsWinBuf((uint32_t)(uintptr_t)(char *)sp->port->portBits.baseAddr))
+        {
+            // Rootless mirrors are 32-bit destinations even when the guest
+            // uses a classic GrafPort. Retain their actual base and stride.
+            PIXMAP_BASEADDR(sp->cp.portPixMap) = sp->port->portBits.baseAddr;
+            PIXMAP_SET_ROWBYTES(sp->cp.portPixMap, sp->port->portBits.rowBytes);
+            pixmap_set_pixel_fields(*sp->cp.portPixMap, 32);
+        }
+        if(getenv("YORE_VIDEO_DEBUG"))
+            fprintf(stderr, "[control-port] bitmap=%p -> pixmap=%p rowBytes=%d -> %d bounds=%d,%d\n",
+                    (void *)sp->port->portBits.baseAddr,
+                    (void *)PIXMAP_BASEADDR(sp->cp.portPixMap),
+                    (int)sp->port->portBits.rowBytes,
+                    (int)PIXMAP_ROWBYTES(sp->cp.portPixMap),
+                    (int)sp->port->portBits.bounds.left,
+                    (int)sp->port->portBits.bounds.top);
         sp->cp.portVersion = wp->portVersion;
         sp->cp.grafVars = wp->grafVars;
         sp->cp.chExtra = wp->chExtra;
