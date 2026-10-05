@@ -40,6 +40,7 @@
 #include <base/common.h>
 #include <DeviceMgr.h>
 #include <FileMgr.h>
+#include <AliasMgr.h>
 #include <MemoryMgr.h>
 #include <OSUtil.h>
 #include <ResourceMgr.h>
@@ -917,13 +918,9 @@ static OSErr C_mactcp_status(ParmBlkPtr pbp, DCtlPtr /*dcp*/) {
 // selector — an int, 2 bytes on 68k — nearest the return address; OSErr
 // returned in D0). We AddResource a 6-byte `JMP.L <magic>` into the System
 // file (current at InitResources) so GetIndResource / GetResource find it.
-// NOTE: some Apple dnr.c copies (Wallops) call Get1IndResource after
-// OpenOurRF() — that only sees the CURRENT file, so without a MacTCP cdev
-// in Control Panels it misses our System stub. Wallops.bin is patched
-// A80E→A80D at the OpenResolver site; a future fix should also drop a
-// fake cdev/ztcp with this same stub so unmodified Get1IndResource apps
-// work. JSR-ing the stub lands in dnrCallback; it reads C args off the
-// 68k stack.
+// Apple's dnr.c also searches the System Folder for a cdev/mtcp file,
+// opens it, and calls Get1IndResource. Publish the same resolver there so
+// current-file-only resource lookup works without modifying guest programs.
 namespace
 {
 syn68k_addr_t dnrCallback(syn68k_addr_t /*addr*/, void* /*arg*/) {
@@ -1031,22 +1028,63 @@ syn68k_addr_t dnrCallback(syn68k_addr_t /*addr*/, void* /*arg*/) {
 
 // Install a 6-byte 'dnrp' resource (id 1) = `JMP.L <dnrCallback magic addr>` so
 // dnr.c's GetIndResource('dnrp',1) + `(*dnr)(…)` trampolines here.
+Handle newDnrResource(syn68k_addr_t magic) {
+  Handle h = NewHandle(6);
+  if (!h) return nullptr;
+  unsigned char stub[6] = {0x4E, 0xF9,
+    static_cast<unsigned char>(magic >> 24),
+    static_cast<unsigned char>(magic >> 16),
+    static_cast<unsigned char>(magic >> 8),
+    static_cast<unsigned char>(magic)};
+  memcpy(*h, stub, sizeof(stub));
+  return h;
+}
+
 void installDnrResource() {
   syn68k_addr_t magic = callback_install(&dnrCallback, nullptr);
-  Handle h = NewHandle(6);
-  if (!h) return;
-  unsigned char stub[6];
-  stub[0] = 0x4E; // JMP.L absolute-long
-  stub[1] = 0xF9;
-  stub[2] = (magic >> 24) & 0xFF; // big-endian magic address
-  stub[3] = (magic >> 16) & 0xFF;
-  stub[4] = (magic >> 8) & 0xFF;
-  stub[5] = magic & 0xFF;
-  memcpy(*h, stub, 6);
-  // Empty Pascal name: "" is a single 0 byte → pascal length 0. (NOT "\p" — clang
-  // has no MPW "\p" prefix; it would silently become a length-'p'=112 string.)
-  AddResource(h, "dnrp"_4, 1, (StringPtr) "");
+  const INTEGER previous = CurResFile();
+  if (Handle h = newDnrResource(magic))
+    AddResource(h, "dnrp"_4, 1, (StringPtr) "");
+
+  GUEST<INTEGER> volume;
+  GUEST<LONGINT> directory;
+  OSErr error = FindFolder(-32768 /* kOnSystemDisk */, kSystemFolderType, false, &volume, &directory);
+  if (error != noErr) {
+    fprintf(stderr, "[mactcp] cannot locate resolver folder: %d\n", error);
+    return;
+  }
+  FSSpec spec{};
+  spec.vRefNum = volume;
+  spec.parID = directory;
+  memcpy(spec.name, "\17Executor MacTCP", 16);
+  FSpCreateResFile(&spec, "mtcp"_4, "cdev"_4, 0);
+  const INTEGER ref = FSpOpenResFile(&spec, fsRdWrPerm);
+  if (ref == -1) {
+    fprintf(stderr, "[mactcp] cannot open resolver resources: %d\n", ResError());
+    UseResFile(previous);
+    return;
+  }
+  // Callback addresses belong to this engine instance. Refresh a persisted
+  // resource on every boot rather than executing a previous instance's stub.
+  Handle h = Get1Resource("dnrp"_4, 1);
+  if (h) {
+    SetHandleSize(h, 6);
+    if (MemError() == noErr) {
+      Handle fresh = newDnrResource(magic);
+      if (fresh) {
+        memcpy(*h, *fresh, 6);
+        DisposeHandle(fresh);
+        ChangedResource(h);
+      }
+    }
+  } else if ((h = newDnrResource(magic))) {
+    AddResource(h, "dnrp"_4, 1, (StringPtr) "");
+  }
+  if (h) WriteResource(h);
+  CloseResFile(ref);
+  UseResFile(previous);
 }
+
 } // namespace
 
 // ── in-engine self-test (env-gated) ──────────────────────────────────────────
