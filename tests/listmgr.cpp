@@ -141,6 +141,29 @@ TEST_F(ListMgr, scrollLayoutVGrow)
     EXPECT_EQ(416, (*scroll)->contrlRect.right);
 }
 
+TEST_F(ListMgr, scrollLayoutAfterViewRectMovedBeforeLSize)
+{
+    list = LNew(&view, &bounds, {16,42}, 0, window, false, false, true, true);
+    ASSERT_NE(nullptr, (*list)->hScroll);
+    ASSERT_NE(nullptr, (*list)->vScroll);
+
+    /* Some clients update rView first, then ask LSize to reconcile it. */
+    (*list)->rView = {20, 30, 220, 430};
+    LSize(400, 200, list);
+
+    Rect h = (*(*list)->hScroll)->contrlRect;
+    EXPECT_EQ(220, h.top);
+    EXPECT_EQ(29, h.left);
+    EXPECT_EQ(236, h.bottom);
+    EXPECT_EQ(431, h.right);
+
+    Rect v = (*(*list)->vScroll)->contrlRect;
+    EXPECT_EQ(19, v.top);
+    EXPECT_EQ(430, v.left);
+    EXPECT_EQ(221, v.bottom);
+    EXPECT_EQ(446, v.right);
+}
+
 TEST_F(ListMgr, scrollRangeV)
 {
     bounds = {0,0,70,40};
