@@ -245,6 +245,34 @@ void Executor::C_LSize(INTEGER width, INTEGER height,
         RectRgn(rectrgn, &r);
         UnionRgn(rectrgn, updatergn, updatergn);
     }
+    /* A caller may update rView before LSize (including moving it without
+     * changing its dimensions).  The size-delta branches above then cannot
+     * detect that the scroll controls need new geometry.  Reconcile their
+     * actual rectangles with rView on every call. */
+    if(ch)
+    {
+        const Rect &cr = (*ch)->contrlRect;
+        int left = (*list)->rView.left - 1;
+        int top = newbottom;
+        int w = newright - (*list)->rView.left + 2;
+        if(cr.left != left || cr.top != top)
+            MoveControl(ch, left, top);
+        if(RECT_WIDTH(&(*ch)->contrlRect) != w
+           || RECT_HEIGHT(&(*ch)->contrlRect) != 16)
+            SizeControl(ch, w, 16);
+    }
+    if(cv)
+    {
+        const Rect &cr = (*cv)->contrlRect;
+        int left = newright;
+        int top = (*list)->rView.top - 1;
+        int h = newbottom - (*list)->rView.top + 2;
+        if(cr.left != left || cr.top != top)
+            MoveControl(cv, left, top);
+        if(RECT_WIDTH(&(*cv)->contrlRect) != 16
+           || RECT_HEIGHT(&(*cv)->contrlRect) != h)
+            SizeControl(cv, 16, h);
+    }
     C_LUpdate(updatergn, list);
     DisposeRgn(updatergn);
     DisposeRgn(rectrgn);
