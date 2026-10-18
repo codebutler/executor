@@ -9,6 +9,7 @@
 #include <ControlMgr.h>
 
 #include <ctl/ctl.h>
+#include <wind/yorebridge.h>
 #include <wind/wind.h>
 
 using namespace Executor;
@@ -68,6 +69,7 @@ void Executor::C_HideControl(ControlHandle c) /* IMI-322 */
             }
 
             EraseRgn(rh);
+            yoreRootlessMirrorControlErase((WindowPeek)CTL_OWNER(c).get(), rh);
             InvalRgn(rh);
             DisposeRgn(rh);
             CTL_VIS(c) = false;

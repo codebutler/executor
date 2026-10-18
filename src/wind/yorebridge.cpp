@@ -814,6 +814,50 @@ void Executor::yoreRootlessScreenDamaged(int top, int left, int bottom, int righ
     }
 }
 
+/* Mirror a control erase from a 1-bit offscreen owner port into the
+ * rootless window's 32-bit display buffer. */
+void Executor::yoreRootlessMirrorControlErase(WindowPeek w, RgnHandle region)
+{
+    if(!yoreRootlessEnabled() || !w || !region || !*region)
+        return;
+    auto it = byWin.find(winKey(w));
+    if(it == byWin.end() || it->second.screenBacked || !WINDOW_VISIBLE(w)
+       || CGrafPort_p(w))
+        return;
+    BufRec &r = it->second;
+    const BitMap &src = PORT_BITS((GrafPtr)w);
+    const uint8_t *srcBytes = (const uint8_t *)(char *)src.baseAddr;
+    if(!srcBytes || active_screen_addr_p(&src))
+        return;
+    const int srcRB = BITMAP_ROWBYTES(&src);
+    if(srcRB <= 0)
+        return;
+    const Rect box = (*region)->rgnBBox;
+    int left = std::max<int>(box.left, 0);
+    int top = std::max<int>(box.top, 0);
+    int right = std::min<int>(box.right, r.cw);
+    int bottom = std::min<int>(box.bottom, r.ch);
+    for(int y = top; y < bottom; y++)
+        for(int x = left; x < right; x++)
+        {
+            Point local = { (int16_t)y, (int16_t)x };
+            if(!PtInRgn(local, region)) continue;
+            int sx = x - src.bounds.left, sy = y - src.bounds.top;
+            int dx = r.fl + x, dy = r.ft + y;
+            if(sx < 0 || sy < 0 || sx >= srcRB * 8
+               || sx >= src.bounds.right - src.bounds.left
+               || sy >= src.bounds.bottom - src.bounds.top
+               || dx < 0 || dy < 0 || dx >= r.sw || dy >= r.sh)
+                continue;
+            bool black = (srcBytes[(size_t)sy * srcRB + (sx >> 3)]
+                          & (0x80 >> (sx & 7))) != 0;
+            uint8_t *dst = r.bytes + (size_t)dy * r.rowBytes + (size_t)dx * 4;
+            dst[0] = 0;
+            dst[1] = dst[2] = dst[3] = black ? 0 : 255;
+        }
+    markFullDirty(r);
+}
+
 /* ── YoreFrameRedirect ─────────────────────────────────────────────────── */
 
 YoreFrameRedirect::YoreFrameRedirect(WindowPeek w)

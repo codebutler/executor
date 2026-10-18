@@ -99,6 +99,7 @@ private:
  * stay on screenBits; their display buffers ARE registered here so
  * YoreFrameRedirect frame draws hit the 32bpp winbuf path. */
 bool yoreRootlessIsWinBuf(uint32_t baseAddr);
+void yoreRootlessMirrorControlErase(WindowPeek w, RgnHandle region);
 
 /* Dirty-note hook for the QuickDraw accrue sites. Coordinates are
  * buffer-relative (same values the sites feed dirty_rect_accrue for the
