@@ -1,0 +1,19 @@
+src/ctl/ctlArrows.cpp
+  s_c5b509402e555f::t_b49890000073e8 656-666,676-691
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ef861f095a81b961dd713eb03a2e83b7e6979ae4",
+  "prompts": {},
+  "sessions": {
+    "s_c5b509402e555f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a109ce-3c3c-77d0-ad2d-f32e97160b9a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eric Butler <eric@codebutler.com>"
+    }
+  }
+}

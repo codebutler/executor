@@ -1,0 +1,21 @@
+src/config/front-ends/sdl2/sdl2.cpp
+  s_c5b509402e555f::t_7fb9146c0d04e1 327-335
+src/quickdraw/qGDevice.cpp
+  s_c5b509402e555f::t_ce58a3ea5834e1 25,405-409,411,448-450,466,474-481
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2f5dec1258c583805ce0a898874dfdcc4fbcb208",
+  "prompts": {},
+  "sessions": {
+    "s_c5b509402e555f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a109ce-3c3c-77d0-ad2d-f32e97160b9a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eric Butler <eric@codebutler.com>"
+    }
+  }
+}
