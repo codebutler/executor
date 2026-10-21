@@ -298,34 +298,35 @@ LONGINT Executor::C_GrowWindow(WindowPtr w, Point startp, const Rect *rp)
     pinr.right  = std::min(32767, startp.h - (r.right - r.left) + (int)rp->right);
     pinr.bottom = std::min(32767, startp.v - (r.bottom - r.top) + (int)rp->bottom);
 
-    /* Yore rootless: no XOR outline (invisible screen) — live-resize the
-     * window each mouse step instead; the host window follows through the
-     * wCalcRgns → syncFrame path. The app still gets the classic contract
-     * (returns the final size; its own SizeWindow call is then a no-op
-     * size-wise). Content repaints on the update events SizeWindow posts. */
+    /* GrowWindow is synchronous: the app cannot service update events here.
+     * Resizing on each step exposes stale controls (e.g. Wallops scrollbars).
+     * Keep the classic contract and publish a live host outline instead of
+     * drawing wGrow into the rootless mode's invisible screen framebuffer. */
     if(yoreRootlessEnabled())
     {
-        EventRecord ev2;
-        Point last = p;
-        int baseW = r.right - r.left;
-        int baseH = r.bottom - r.top;
-        while(!GetOSEvent(mUpMask, &ev2))
+        yoreRootlessGrowPreview((WindowPeek)w, &r);
+        for(;;)
         {
-            Point ep = ev2.where.get();
-            LONGINT pinned = PinRect(&pinr, ep);
-            ep.v = HiWord(pinned);
-            ep.h = LoWord(pinned);
-            if(ep.h != last.h || ep.v != last.v)
+            const bool released = GetOSEvent(mUpMask, &ev);
+            Point ep = ev.where.get();
+            l = PinRect(&pinr, ep);
+            ep.v = HiWord(l);
+            ep.h = LoWord(l);
+            if(p.h != ep.h || p.v != ep.v)
             {
-                last = ep;
-                SizeWindow(w, baseW + (ep.h - startp.h),
-                           baseH + (ep.v - startp.v), true);
+                r.right = r.right + (ep.h - p.h);
+                r.bottom = r.bottom + (ep.v - p.v);
+                p = ep;
+                yoreRootlessGrowPreview((WindowPeek)w, &r);
             }
+            if(released)
+                break;
             CALLDRAGHOOK();
         }
-        if(last.h != startp.h || last.v != startp.v)
-            return (((LONGINT)(baseH + (last.v - startp.v)) << 16)
-                    | (unsigned short)(baseW + (last.h - startp.h)));
+        yoreRootlessGrowPreview((WindowPeek)w, nullptr);
+        if(p.h != startp.h || p.v != startp.v)
+            return (((LONGINT)(r.bottom - r.top) << 16)
+                    | (unsigned short)(r.right - r.left));
         return 0L;
     }
 

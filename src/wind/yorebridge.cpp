@@ -36,6 +36,7 @@
 #include <atomic>
 #include <vector>
 #include <climits>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <unordered_map>
@@ -53,7 +54,7 @@ using namespace Executor;
 namespace
 {
 constexpr uint32_t YORE_MAGIC = 0x45524f59; /* 'YORE' */
-constexpr uint32_t YORE_VERSION = 4;
+constexpr uint32_t YORE_VERSION = 5;
 constexpr int MAX_WINS = 64;
 constexpr int TITLE_BYTES = 48;
 constexpr int RING_CAP = 256;
@@ -101,7 +102,14 @@ struct Table
     uint32_t cursorVisible;
     int32_t cursorHotX, cursorHotY;
     uint32_t cursorPixels[16 * 16];
+    /* v5: temporary GrowWindow structure outline, under table.seq.
+     * App pixels, port bounds and window slots remain unchanged. */
+    uint32_t growHwnd; /* zero when no grow is being tracked */
+    MenuRect growRect;
 };
+
+static_assert(offsetof(Table, growHwnd) == 2356 * sizeof(uint32_t),
+              "Grow outline offset is part of the host ABI");
 
 struct InputRec
 {
@@ -119,7 +127,7 @@ struct InputRing
     InputRec recs[RING_CAP];
 };
 
-Table table = { YORE_MAGIC, YORE_VERSION, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {}, {}, {}, 0, 1, 0, 0, {} };
+Table table = { YORE_MAGIC, YORE_VERSION, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {}, {}, {}, 0, 1, 0, 0, {}, 0, {} };
 InputRing ring = { 0, 0, RING_CAP, 0, {} };
 
 struct BufRec
@@ -642,6 +650,31 @@ void Executor::yoreRootlessNudgeOnscreen(WindowPeek w)
     int gx, gy, cw, ch;
     contentGeometry(w, &gx, &gy, &cw, &ch);
     MoveWindow((WindowPtr)w, gx + dx, gy + dy, false);
+}
+
+void Executor::yoreRootlessGrowPreview(WindowPeek w, const Rect *content)
+{
+    if(!yoreRootlessEnabled())
+        return;
+    uint32_t seq = table.seq;
+    atomicStore(&table.seq, seq + 1);
+    table.growHwnd = 0;
+    if(content && w)
+    {
+        auto it = byWin.find(winKey(w));
+        if(it != byWin.end())
+        {
+            const BufRec &rec = it->second;
+            table.growRect = {
+                content->left + rec.sx - rec.gx,
+                content->top + rec.sy - rec.gy,
+                content->right + rec.sx + rec.sw - rec.gx - rec.cw,
+                content->bottom + rec.sy + rec.sh - rec.gy - rec.ch
+            };
+            table.growHwnd = winKey(w);
+        }
+    }
+    atomicStore(&table.seq, seq + 2);
 }
 
 void Executor::yoreRootlessPublish()

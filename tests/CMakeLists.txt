@@ -37,7 +37,7 @@ function(add_compilefail_tests filename)
 endfunction()
 
 set(NATIVE_TEST_SOURCES
-        files_internal.cpp guestvalues.cpp cpu.cpp
+        files_internal.cpp guestvalues.cpp cpu.cpp windowgrow.cpp
         sane.cpp
     )
 
@@ -81,6 +81,19 @@ else()
     target_compile_definitions(tests PRIVATE -DEXECUTOR)
     if(CMAKE_COMPILER_IS_GNUCXX)
         target_compile_options(tests PRIVATE -Wno-multichar)
+    endif()
+
+    if(EMSCRIPTEN)
+        # Match the engine memory/thread model; keep names for test failures
+        # and use a cheaper optimization pass than the shipped engine.
+        target_link_options(tests PRIVATE
+            -O1 -g2 -pthread -fwasm-exceptions
+            -sALLOW_MEMORY_GROWTH=1
+            -sINITIAL_MEMORY=268435456
+            -sSTACK_SIZE=1048576
+            -sPTHREAD_POOL_SIZE=2
+            -sENVIRONMENT=node
+            --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/wasm-env.js)
     endif()
 
     gtest_discover_tests(tests)

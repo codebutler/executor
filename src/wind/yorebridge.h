@@ -66,6 +66,10 @@ void yoreRootlessNudgeOnscreen(WindowPeek w);
  * disabled). Called from ROMlib_rootless_update plus title/hilite changes. */
 void yoreRootlessPublish();
 
+/* GrowWindow tracks a proposed CONTENT rectangle without resizing the guest.
+ * Publish its structure outline for the host; nullptr ends the preview. */
+void yoreRootlessGrowPreview(WindowPeek w, const Rect *content);
+
 /* RAII: while alive, WMgrCPort's pixmap is REBOUND to `w`'s backing buffer:
  * baseAddr = the real buffer, bounds = the struct rect (so QuickDraw's
  * bounds/visRgn clipping covers the whole buffer even where the struct
