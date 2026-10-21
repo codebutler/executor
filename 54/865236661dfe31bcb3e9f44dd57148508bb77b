@@ -1,0 +1,29 @@
+src/wind/windSize.cpp
+  s_897abc02f455ae::t_170a275adf7fd0 301-304,307-308,310-315,317-320,322-323,326-329
+src/wind/yorebridge.cpp
+  s_897abc02f455ae::t_e196d141c85f54 39,57,105-108,111-113,130,655-679
+src/wind/yorebridge.h
+  s_897abc02f455ae::t_f9041ad9f2d003 69-72
+tests/CMakeLists.txt
+  s_897abc02f455ae::t_881e001ab8e330 40,86-98
+tests/wasm-env.js
+  s_897abc02f455ae::t_15d0aa7d1c7a22 1-6
+tests/windowgrow.cpp
+  s_897abc02f455ae::t_afbcae993410c5 1-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "54865236661dfe31bcb3e9f44dd57148508bb77b",
+  "prompts": {},
+  "sessions": {
+    "s_897abc02f455ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16060-4dd5-7401-8923-5f9708298c6b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eric Butler <eric@codebutler.com>"
+    }
+  }
+}
